@@ -1,7 +1,8 @@
 use std::{
-    f32::consts::TAU,
+    f32::consts::{PI, TAU},
     ffi::{CStr, CString},
     mem,
+    time::Instant,
 };
 
 use gl::types::{GLenum, GLfloat, GLsizei, GLsizeiptr, GLuint};
@@ -74,6 +75,10 @@ pub struct Renderer {
     squares: Vec<Square>,
     vertices: Vec<[Vertex; 4]>,
     indices: Vec<[u32; 6]>,
+
+    start: Instant,
+    last_instant: Instant,
+    frame_count: u128,
 }
 
 const N_SQUARES: usize = 100_000;
@@ -184,15 +189,24 @@ impl Renderer {
                 squares,
                 vertices,
                 indices,
+
+                start: Instant::now(),
+                last_instant: Instant::now(),
+                frame_count: 0,
             }
         }
     }
 
     pub fn draw(&mut self) {
+        let dt = self.last_instant.elapsed().as_secs_f32();
+        self.last_instant = Instant::now();
+
         for (square, verts) in self.squares.iter_mut().zip(self.vertices.iter_mut()) {
-            square.rot += 0.01;
+            square.rot += dt * PI;
             *verts = square.vertices();
         }
+
+        self.frame_count += 1;
 
         self.draw_with_clear_color(0., 0., 0., 0.5)
     }
@@ -236,6 +250,11 @@ impl Renderer {
 
 impl Drop for Renderer {
     fn drop(&mut self) {
+        let elapsed = self.start.elapsed().as_secs_f64();
+        let fps = self.frame_count as f64 / elapsed;
+        println!("Total frames: {}", self.frame_count);
+        println!("Average FPS:  {}", fps);
+
         unsafe {
             gl::DeleteProgram(self.square_shader);
             gl::DeleteBuffers(1, &self.vbo);
