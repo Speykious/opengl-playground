@@ -1,13 +1,65 @@
 use std::{
+    f32::consts::TAU,
     ffi::{CStr, CString},
     mem,
 };
 
 use gl::types::{GLenum, GLfloat, GLsizei, GLsizeiptr, GLuint};
-use glam::{vec3, vec4, Vec2, Vec3, Vec4};
+use glam::{vec2, vec3, vec4, Vec2, Vec3, Vec4};
 use glutin::display::GlDisplay;
+use rand::Rng;
 
 use crate::camera::Camera;
+
+#[repr(C)]
+#[derive(Debug, Clone)]
+struct Square {
+    pub pos: Vec3,
+    pub rot: f32,
+    pub size: Vec2,
+    pub col: Vec4,
+}
+
+impl Square {
+    fn random(rng: &mut impl Rng) -> Self {
+        Self {
+            pos: vec3(
+                rng.gen_range(-1000.0..=1000.0),
+                rng.gen_range(-1000.0..=1000.0),
+                rng.gen_range(-1.0..=1.0),
+            ),
+            rot: rng.gen_range(0.0..TAU),
+            size: Vec2::splat(rng.gen_range(50.0..=100.0)),
+            col: vec4(
+                rng.gen_range(0.5..=1.0),
+                rng.gen_range(0.5..=1.0),
+                rng.gen_range(0.5..=1.0),
+                rng.gen_range(0.5..=1.0),
+            ),
+        }
+    }
+
+    fn vertices(&self) -> [Vertex; 4] {
+        let pos = self.pos;
+        let size = self.size;
+        let col = self.col;
+
+        let r = vec2(self.rot.cos(), self.rot.sin());
+
+        #[rustfmt::skip]
+        return [
+            vertex((vec2(-0.5, -0.5).rotate(r) * size).extend(0.0) + pos, col),
+            vertex((vec2(-0.5,  0.5).rotate(r) * size).extend(0.0) + pos, col),
+            vertex((vec2( 0.5,  0.5).rotate(r) * size).extend(0.0) + pos, col),
+            vertex((vec2( 0.5, -0.5).rotate(r) * size).extend(0.0) + pos, col),
+        ];
+    }
+
+    fn indices(&self, square_index: u32) -> [u32; 6] {
+        let i = square_index * 4;
+        [i, 1 + i, 2 + i, i, 2 + i, 3 + i]
+    }
+}
 
 pub struct Renderer {
     camera: Camera,
@@ -18,10 +70,28 @@ pub struct Renderer {
     ebo: GLuint,
 
     u_mvp: i32,
+
+    squares: Vec<Square>,
+    vertices: Vec<[Vertex; 4]>,
+    indices: Vec<[u32; 6]>,
 }
+
+const N_SQUARES: usize = 100_000;
 
 impl Renderer {
     pub fn new<D: GlDisplay>(gl_display: &D) -> Self {
+        let mut squares = Vec::with_capacity(N_SQUARES);
+        let mut vertices = Vec::with_capacity(N_SQUARES);
+        let mut indices = Vec::with_capacity(N_SQUARES);
+
+        let mut rng = rand::thread_rng();
+        for i in 0..(N_SQUARES as u32) {
+            let square = Square::random(&mut rng);
+            vertices.push(square.vertices());
+            indices.push(square.indices(i));
+            squares.push(square);
+        }
+
         unsafe {
             gl::load_with(|symbol| {
                 let symbol = CString::new(symbol).unwrap();
@@ -64,8 +134,8 @@ impl Renderer {
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
-                mem::size_of_val(VERTICES) as GLsizeiptr,
-                VERTICES.as_ptr() as *const _,
+                mem::size_of_val(vertices.as_slice()) as GLsizeiptr,
+                vertices.as_slice().as_ptr() as *const _,
                 gl::DYNAMIC_DRAW,
             );
 
@@ -74,8 +144,8 @@ impl Renderer {
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
             gl::BufferData(
                 gl::ELEMENT_ARRAY_BUFFER,
-                mem::size_of_val(INDICES) as GLsizeiptr,
-                INDICES.as_ptr() as *const _,
+                mem::size_of_val(indices.as_slice()) as GLsizeiptr,
+                indices.as_slice().as_ptr() as *const _,
                 gl::STATIC_DRAW,
             );
 
@@ -110,15 +180,24 @@ impl Renderer {
                 ebo,
 
                 u_mvp,
+
+                squares,
+                vertices,
+                indices,
             }
         }
     }
 
-    pub fn draw(&self) {
+    pub fn draw(&mut self) {
+        for (square, verts) in self.squares.iter_mut().zip(self.vertices.iter_mut()) {
+            square.rot += 0.01;
+            *verts = square.vertices();
+        }
+
         self.draw_with_clear_color(0., 0., 0., 0.5)
     }
 
-    pub fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
+    pub fn draw_with_clear_color(&mut self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
         unsafe {
             gl::UseProgram(self.square_shader);
 
@@ -126,11 +205,19 @@ impl Renderer {
             gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
 
+            // upload new data here
+            gl::BufferSubData(
+                gl::ARRAY_BUFFER,
+                0,
+                mem::size_of_val(self.vertices.as_slice()) as GLsizeiptr,
+                self.vertices.as_slice().as_ptr() as *const _,
+            );
+
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
             gl::DrawElements(
                 gl::TRIANGLES,
-                INDICES.len() as GLsizei,
+                self.indices.len() as GLsizei,
                 gl::UNSIGNED_INT,
                 std::ptr::null(),
             );
@@ -177,6 +264,7 @@ fn get_gl_string(variant: GLenum) -> Option<&'static CStr> {
 }
 
 #[repr(C)]
+#[derive(Debug, Clone, Copy)]
 struct Vertex {
     pos: Vec3,
     col: Vec4,
@@ -185,15 +273,6 @@ struct Vertex {
 const fn vertex(pos: Vec3, col: Vec4) -> Vertex {
     Vertex { pos, col }
 }
-
-static VERTICES: &[Vertex] = &[
-    vertex(vec3(-100., -100., 0.0), vec4(1.0, 0.2, 0.3, 0.7)),
-    vertex(vec3(-100., 100., 0.0), vec4(1.0, 0.2, 0.3, 0.7)),
-    vertex(vec3(100., 100., 0.0), vec4(1.0, 0.2, 0.3, 0.7)),
-    vertex(vec3(100., -100., 0.0), vec4(1.0, 0.2, 0.3, 0.7)),
-];
-
-static INDICES: &[u32] = &[0, 1, 2, 0, 2, 3];
 
 const VERTEX_SHADER_SOURCE: &[u8] = b"
 #version 100

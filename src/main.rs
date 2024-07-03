@@ -227,7 +227,7 @@ impl ApplicationHandler for App {
             window,
         }) = self.state.as_ref()
         {
-            let renderer = self.renderer.as_ref().unwrap();
+            let renderer = self.renderer.as_mut().unwrap();
             renderer.draw();
             window.request_redraw();
 
