@@ -1,11 +1,12 @@
 use std::{
+    collections::HashSet,
     f32::consts::{PI, TAU},
-    ffi::{CStr, CString},
+    ffi::{c_void, CStr, CString},
     mem,
     time::Instant,
 };
 
-use gl::types::{GLenum, GLfloat, GLsizei, GLsizeiptr, GLuint};
+use gl::types::{GLchar, GLenum, GLfloat, GLsizei, GLsizeiptr, GLuint};
 use glam::{vec2, vec4, Vec2, Vec4};
 use glutin::display::GlDisplay;
 use rand::Rng;
@@ -126,7 +127,7 @@ pub struct Renderer {
 const N_SQUARES: usize = 100;
 
 impl Renderer {
-    pub fn new<D: GlDisplay>(gl_display: &D) -> Self {
+    pub fn new(gl_display: &glutin::display::Display) -> Self {
         let mut squares = Vec::with_capacity(N_SQUARES);
         let mut vertices = Vec::with_capacity(N_SQUARES);
         let mut indices = Vec::with_capacity(N_SQUARES);
@@ -153,6 +154,15 @@ impl Renderer {
             }
             if let Some(shaders_version) = get_gl_string(gl::SHADING_LANGUAGE_VERSION) {
                 println!("Shaders version on {}", shaders_version.to_string_lossy());
+            }
+
+            // Check for "GL_KHR_debug" support (not present on Apple *OS).
+            let extensions = get_opengl_extensions();
+
+            if extensions.contains("GL_KHR_debug") {
+                println!("Debug extension supported!\n");
+                gl::DebugMessageCallback(Some(debug_message_callback), std::ptr::null());
+                gl::Enable(gl::DEBUG_OUTPUT);
             }
 
             gl::Enable(gl::BLEND);
@@ -192,7 +202,7 @@ impl Renderer {
 
             let size_vertex = mem::size_of::<Vertex>() as GLsizei;
             let size_f32 = mem::size_of::<f32>();
-            
+
             #[rustfmt::skip]
             {
                 let a_position     = gl::GetAttribLocation(program, c"position"     .as_ptr()) as GLuint;
@@ -322,6 +332,7 @@ unsafe fn create_shader_program(vert_source: &[u8], frag_source: &[u8]) -> GLuin
         gl::ShaderSource(vert_shader, 1, &source, &length);
         gl::CompileShader(vert_shader);
     }
+    verify_shader(vert_shader);
 
     let frag_shader = gl::CreateShader(gl::FRAGMENT_SHADER);
     {
@@ -330,19 +341,60 @@ unsafe fn create_shader_program(vert_source: &[u8], frag_source: &[u8]) -> GLuin
         gl::ShaderSource(frag_shader, 1, &source, &length);
         gl::CompileShader(frag_shader);
     }
+    verify_shader(frag_shader);
 
     let program = gl::CreateProgram();
+    {
+        gl::AttachShader(program, vert_shader);
+        gl::AttachShader(program, frag_shader);
 
-    gl::AttachShader(program, vert_shader);
-    gl::AttachShader(program, frag_shader);
+        gl::LinkProgram(program);
+        gl::UseProgram(program);
 
-    gl::LinkProgram(program);
-    gl::UseProgram(program);
-
-    gl::DeleteShader(vert_shader);
-    gl::DeleteShader(frag_shader);
+        gl::DeleteShader(vert_shader);
+        gl::DeleteShader(frag_shader);
+    }
+    verify_program(program);
 
     program
+}
+
+unsafe fn verify_shader(shader: GLuint) {
+    let mut status = 0;
+    gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut status);
+
+    if status != 1 {
+        let mut length = 0;
+        gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut length);
+
+        if length > 0 {
+            let mut log = String::with_capacity(length as usize);
+            log.extend(std::iter::repeat('\0').take(length as usize));
+            gl::GetShaderInfoLog(shader, length, &mut length, log.as_str().as_ptr() as *mut _);
+            log.truncate(length as usize);
+
+            eprintln!("SHADER COMPILE ERROR: {log}");
+        }
+    }
+}
+
+unsafe fn verify_program(shader: GLuint) {
+    let mut status = 0;
+    gl::GetShaderiv(shader, gl::LINK_STATUS, &mut status);
+
+    if status != 1 {
+        let mut length = 0;
+        gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut length);
+
+        if length > 0 {
+            let mut log = String::with_capacity(length as usize);
+            log.extend(std::iter::repeat('\0').take(length as usize));
+            gl::GetProgramInfoLog(shader, length, &mut length, log.as_str().as_ptr() as *mut _);
+            log.truncate(length as usize);
+
+            eprintln!("PROGRAM LINK ERROR: {log}");
+        }
+    }
 }
 
 fn get_gl_string(variant: GLenum) -> Option<&'static CStr> {
@@ -350,4 +402,49 @@ fn get_gl_string(variant: GLenum) -> Option<&'static CStr> {
         let s = gl::GetString(variant);
         (!s.is_null()).then(|| CStr::from_ptr(s.cast()))
     }
+}
+
+unsafe fn get_opengl_extensions() -> HashSet<String> {
+    let mut num_extensions = 0;
+    gl::GetIntegerv(gl::NUM_EXTENSIONS, &mut num_extensions);
+
+    (0..num_extensions)
+        .map(|i| {
+            let extension_name = gl::GetStringi(gl::EXTENSIONS, i as u32) as *const _;
+            CStr::from_ptr(extension_name).to_string_lossy().to_string()
+        })
+        .collect()
+}
+
+extern "system" fn debug_message_callback(
+    _src: GLenum,
+    ty: GLenum,
+    _id: GLuint,
+    sevr: GLenum,
+    _len: GLsizei,
+    msg: *const GLchar,
+    _user_param: *mut c_void,
+) {
+    let ty = match ty {
+        gl::DEBUG_TYPE_ERROR => "Error: ",
+        gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => "Deprecated Behavior: ",
+        gl::DEBUG_TYPE_MARKER => "Marker: ",
+        gl::DEBUG_TYPE_OTHER => "",
+        gl::DEBUG_TYPE_POP_GROUP => "Pop Group: ",
+        gl::DEBUG_TYPE_PORTABILITY => "Portability: ",
+        gl::DEBUG_TYPE_PUSH_GROUP => "Push Group: ",
+        gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => "Undefined Behavior: ",
+        gl::DEBUG_TYPE_PERFORMANCE => "Performance: ",
+        ty => unreachable!("unknown debug type {ty}"),
+    };
+
+    let msg = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
+
+    match sevr {
+        gl::DEBUG_SEVERITY_NOTIFICATION => println!("[opengl debug] {ty}{msg}"),
+        gl::DEBUG_SEVERITY_LOW => println!("[opengl  info] {ty}{msg}"),
+        gl::DEBUG_SEVERITY_MEDIUM => println!("[opengl  warn] {ty}{msg}"),
+        gl::DEBUG_SEVERITY_HIGH => println!("[opengl error] {ty}{msg}"),
+        sevr => unreachable!("unknown debug severity {sevr}"),
+    };
 }
