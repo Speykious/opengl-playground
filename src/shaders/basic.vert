@@ -9,7 +9,7 @@ attribute vec2 uv;
 attribute float roundness;
 attribute float stroke_width;
 attribute vec4 fill_color;
-attribute float stroke_color;
+attribute vec4 stroke_color;
 
 varying vec2 v_size;
 varying vec2 v_uv;
