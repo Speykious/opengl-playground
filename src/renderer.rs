@@ -81,7 +81,7 @@ pub struct Renderer {
     frame_count: u128,
 }
 
-const N_SQUARES: usize = 100_000;
+const N_SQUARES: usize = 10_000;
 
 impl Renderer {
     pub fn new<D: GlDisplay>(gl_display: &D) -> Self {
@@ -112,6 +112,10 @@ impl Renderer {
             if let Some(shaders_version) = get_gl_string(gl::SHADING_LANGUAGE_VERSION) {
                 println!("Shaders version on {}", shaders_version.to_string_lossy());
             }
+
+            gl::Enable(gl::BLEND);
+            gl::BlendEquation(gl::FUNC_ADD);
+            gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
 
             let program = create_shader_program(
                 include_bytes!("shaders/basic.vert"),
