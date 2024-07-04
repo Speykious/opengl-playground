@@ -25,14 +25,20 @@ struct Square {
     pub stroke_color: Vec4,
 }
 
+const AREA: f32 = 300.0;
+const AREA_BOUND: f32 = AREA * 0.5;
+
 impl Square {
     fn random(rng: &mut impl Rng) -> Self {
         Self {
-            position: vec2(rng.gen_range(-727.0..=727.0), rng.gen_range(-727.0..=727.0)),
-            size: Vec2::splat(rng.gen_range(100.0..=200.0)),
+            position: vec2(
+                rng.gen_range(-AREA_BOUND..=AREA_BOUND),
+                rng.gen_range(-AREA_BOUND..=AREA_BOUND),
+            ),
+            size: Vec2::splat(rng.gen_range(50.0..=100.0)),
             rotation: rng.gen_range(0.0..TAU),
-            roundness: rng.gen_range(0.0..=20.0),
-            stroke_width: rng.gen_range(0.0..=20.0),
+            roundness: rng.gen_range(10.0..=30.0),
+            stroke_width: rng.gen_range(5.0..=15.0),
             fill_color: vec4(
                 rng.gen_range(0.5..=1.0),
                 rng.gen_range(0.5..=1.0),
@@ -124,7 +130,7 @@ pub struct Renderer {
     frame_count: u128,
 }
 
-const N_SQUARES: usize = 100;
+const N_SQUARES: usize = 10_000;
 
 impl Renderer {
     pub fn new(gl_display: &glutin::display::Display) -> Self {
@@ -167,7 +173,7 @@ impl Renderer {
 
             gl::Enable(gl::BLEND);
             gl::BlendEquation(gl::FUNC_ADD);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
 
             let program = create_shader_program(
                 include_bytes!("shaders/basic.vert"),
@@ -252,18 +258,11 @@ impl Renderer {
     }
 
     pub fn draw(&mut self) {
-        let t = self.start.elapsed().as_secs_f32() * PI * 0.25;
         let dt = self.last_instant.elapsed().as_secs_f32();
         self.last_instant = Instant::now();
 
-        for (i, (square, verts)) in (self.squares.iter_mut())
-            .zip(self.vertices.iter_mut())
-            .enumerate()
-        {
+        for (square, verts) in (self.squares.iter_mut()).zip(self.vertices.iter_mut()) {
             square.rotation += dt * PI * 0.25;
-
-            let a = t + i as f32 * PI * 0.25;
-            square.position = vec2(a.cos() * 100.0, a.sin() * 100.0);
             *verts = square.vertices();
         }
 
