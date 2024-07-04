@@ -231,7 +231,7 @@ impl Renderer {
             gl::Clear(gl::COLOR_BUFFER_BIT);
             gl::DrawElements(
                 gl::TRIANGLES,
-                self.indices.len() as GLsizei,
+                mem::size_of_val(self.indices.as_slice()) as GLsizei,
                 gl::UNSIGNED_INT,
                 std::ptr::null(),
             );
