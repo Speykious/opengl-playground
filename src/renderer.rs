@@ -109,24 +109,14 @@ impl Renderer {
             if let Some(version) = get_gl_string(gl::VERSION) {
                 println!("OpenGL Version {}", version.to_string_lossy());
             }
-
             if let Some(shaders_version) = get_gl_string(gl::SHADING_LANGUAGE_VERSION) {
                 println!("Shaders version on {}", shaders_version.to_string_lossy());
             }
 
-            let vertex_shader = create_shader(gl::VERTEX_SHADER, VERTEX_SHADER_SOURCE);
-            let fragment_shader = create_shader(gl::FRAGMENT_SHADER, FRAGMENT_SHADER_SOURCE);
-
-            let program = gl::CreateProgram();
-
-            gl::AttachShader(program, vertex_shader);
-            gl::AttachShader(program, fragment_shader);
-
-            gl::LinkProgram(program);
-            gl::UseProgram(program);
-
-            gl::DeleteShader(vertex_shader);
-            gl::DeleteShader(fragment_shader);
+            let program = create_shader_program(
+                include_bytes!("shaders/basic.vert"),
+                include_bytes!("shaders/basic.frag"),
+            );
 
             let u_mvp = gl::GetUniformLocation(program, c"mvp".as_ptr());
 
@@ -263,16 +253,35 @@ impl Drop for Renderer {
     }
 }
 
-unsafe fn create_shader(shader: GLenum, source: &[u8]) -> GLuint {
-    let shader = gl::CreateShader(shader);
-    gl::ShaderSource(
-        shader,
-        1,
-        [source.as_ptr().cast()].as_ptr(),
-        std::ptr::null(),
-    );
-    gl::CompileShader(shader);
-    shader
+unsafe fn create_shader_program(vert_source: &[u8], frag_source: &[u8]) -> GLuint {
+    let vert_shader = gl::CreateShader(gl::VERTEX_SHADER);
+    {
+        let length = vert_source.len() as i32;
+        let source = vert_source.as_ptr() as *const i8;
+        gl::ShaderSource(vert_shader, 1, &source, &length);
+        gl::CompileShader(vert_shader);
+    }
+
+    let frag_shader = gl::CreateShader(gl::FRAGMENT_SHADER);
+    {
+        let length = frag_source.len() as i32;
+        let source = frag_source.as_ptr() as *const i8;
+        gl::ShaderSource(frag_shader, 1, &source, &length);
+        gl::CompileShader(frag_shader);
+    }
+
+    let program = gl::CreateProgram();
+
+    gl::AttachShader(program, vert_shader);
+    gl::AttachShader(program, frag_shader);
+
+    gl::LinkProgram(program);
+    gl::UseProgram(program);
+
+    gl::DeleteShader(vert_shader);
+    gl::DeleteShader(frag_shader);
+
+    program
 }
 
 fn get_gl_string(variant: GLenum) -> Option<&'static CStr> {
@@ -292,31 +301,3 @@ struct Vertex {
 const fn vertex(pos: Vec3, col: Vec4) -> Vertex {
     Vertex { pos, col }
 }
-
-const VERTEX_SHADER_SOURCE: &[u8] = b"
-#version 100
-precision mediump float;
-
-uniform mat4 mvp;
-
-attribute vec3 pos;
-attribute vec4 col;
-
-varying vec4 v_color;
-
-void main() {
-    gl_Position = mvp * vec4(pos, 1.0);
-    v_color = col;
-}
-\0";
-
-const FRAGMENT_SHADER_SOURCE: &[u8] = b"
-#version 100
-precision mediump float;
-
-varying vec4 v_color;
-
-void main() {
-    gl_FragColor = v_color;
-}
-\0";
