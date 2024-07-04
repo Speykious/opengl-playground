@@ -25,8 +25,8 @@ impl Square {
     fn random(rng: &mut impl Rng) -> Self {
         Self {
             pos: vec3(
-                rng.gen_range(-1000.0..=1000.0),
-                rng.gen_range(-1000.0..=1000.0),
+                rng.gen_range(-727.0..=727.0),
+                rng.gen_range(-727.0..=727.0),
                 rng.gen_range(-1.0..=1.0),
             ),
             rot: rng.gen_range(0.0..TAU),
