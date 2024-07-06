@@ -176,7 +176,7 @@ impl Renderer {
             gl::BlendEquation(gl::FUNC_ADD);
             gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
 
-            // gl::Enable(gl::MULTISAMPLE);
+            gl::Enable(gl::MULTISAMPLE);
 
             let program = create_shader_program(
                 include_bytes!("shaders/basic.vert"),
