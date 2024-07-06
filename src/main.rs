@@ -112,13 +112,13 @@ impl ApplicationHandler for App {
 
         // The context creation part.
         let context_attributes = ContextAttributesBuilder::new()
-            .with_context_api(ContextApi::Gles(None))
+            .with_context_api(ContextApi::OpenGl(None))
             .build(raw_window_handle);
 
         // Since glutin by default tries to create OpenGL core context, which may not be
         // present we should try gles.
         let fallback_context_attributes = ContextAttributesBuilder::new()
-            .with_context_api(ContextApi::OpenGl(None))
+            .with_context_api(ContextApi::Gles(None))
             .build(raw_window_handle);
 
         // There are also some old devices that support neither modern OpenGL nor GLES.
