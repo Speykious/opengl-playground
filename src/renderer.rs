@@ -131,7 +131,7 @@ pub struct Renderer {
     frame_count: u128,
 }
 
-const N_SQUARES: usize = 10;
+const N_SQUARES: usize = 100;
 
 impl Renderer {
     pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
