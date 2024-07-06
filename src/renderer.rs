@@ -10,6 +10,7 @@ use gl::types::{GLchar, GLenum, GLfloat, GLsizei, GLsizeiptr, GLuint};
 use glam::{vec2, vec4, Vec2, Vec4};
 use glutin::display::GlDisplay;
 use rand::Rng;
+use winit::window::Window;
 
 use crate::camera::Camera;
 
@@ -130,10 +131,10 @@ pub struct Renderer {
     frame_count: u128,
 }
 
-const N_SQUARES: usize = 10_000;
+const N_SQUARES: usize = 10;
 
 impl Renderer {
-    pub fn new(gl_display: &glutin::display::Display) -> Self {
+    pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
         let mut squares = Vec::with_capacity(N_SQUARES);
         let mut vertices = Vec::with_capacity(N_SQUARES);
         let mut indices = Vec::with_capacity(N_SQUARES);
@@ -174,6 +175,8 @@ impl Renderer {
             gl::Enable(gl::BLEND);
             gl::BlendEquation(gl::FUNC_ADD);
             gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
+
+            // gl::Enable(gl::MULTISAMPLE);
 
             let program = create_shader_program(
                 include_bytes!("shaders/basic.vert"),
@@ -236,8 +239,13 @@ impl Renderer {
                 gl::EnableVertexAttribArray(a_stroke_color as GLuint);
             };
 
+            let camera = Camera {
+                scale: Vec2::splat(window.scale_factor() as f32 * 1.8),
+                ..Default::default()
+            };
+
             Self {
-                camera: Camera::default(),
+                camera,
 
                 square_shader: program,
                 vao,

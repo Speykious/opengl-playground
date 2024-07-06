@@ -20,8 +20,8 @@ use winit::{
     window::{Theme, Window, WindowAttributes},
 };
 
-pub mod renderer;
 pub mod camera;
+pub mod renderer;
 
 fn main() {
     let event_loop = EventLoop::new().unwrap();
@@ -97,7 +97,8 @@ impl ApplicationHandler for App {
             }
         };
 
-        println!("Picked a config with {} samples", gl_config.num_samples());
+        print!("Chosen config = ");
+        debug_gl_config(&gl_config);
 
         let raw_window_handle = window
             .as_ref()
@@ -109,12 +110,14 @@ impl ApplicationHandler for App {
         let gl_display = gl_config.display();
 
         // The context creation part.
-        let context_attributes = ContextAttributesBuilder::new().build(raw_window_handle);
+        let context_attributes = ContextAttributesBuilder::new()
+            .with_context_api(ContextApi::Gles(None))
+            .build(raw_window_handle);
 
         // Since glutin by default tries to create OpenGL core context, which may not be
         // present we should try gles.
         let fallback_context_attributes = ContextAttributesBuilder::new()
-            .with_context_api(ContextApi::Gles(None))
+            .with_context_api(ContextApi::OpenGl(None))
             .build(raw_window_handle);
 
         // There are also some old devices that support neither modern OpenGL nor GLES.
@@ -162,7 +165,7 @@ impl ApplicationHandler for App {
         // buffers. It also performs function loading, which needs a current context on
         // WGL.
         self.renderer
-            .get_or_insert_with(|| Renderer::new(&gl_display));
+            .get_or_insert_with(|| Renderer::new(&gl_display, window.as_ref()));
 
         // Try setting vsync.
         if let Err(res) = gl_surface
@@ -240,15 +243,48 @@ impl ApplicationHandler for App {
 // smooth.
 pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Config {
     configs
+        .map(|config| {
+            debug_gl_config(&config);
+            config
+        })
         .reduce(|accum, config| {
-            let transparency_check = config.supports_transparency().unwrap_or(false)
-                & !accum.supports_transparency().unwrap_or(false);
-
-            if transparency_check || config.num_samples() > accum.num_samples() {
+            if config.supports_transparency().unwrap_or(false)
+                && !accum.supports_transparency().unwrap_or(false)
+            {
                 config
             } else {
                 accum
             }
+            // let acc_has_trans = accum.supports_transparency().unwrap_or(false);
+            // let conf_has_trans = config.supports_transparency().unwrap_or(false);
+
+            // if conf_has_trans && config.num_samples() == 4 {
+            //     config
+            // } else if acc_has_trans && accum.num_samples() == 4 {
+            //     accum
+            // } else if conf_has_trans {
+            //     config
+            // } else if acc_has_trans {
+            //     accum
+            // } else {
+            //     config
+            // }
         })
         .unwrap()
+}
+
+fn debug_gl_config(gl_config: &glutin::config::Config) {
+    println!("OpenGL config:");
+    println!("  Color buffer type:     {:?}", gl_config.color_buffer_type());
+    println!("  Float pixels:          {:?}", gl_config.float_pixels());
+    println!("  Alpha size:            {:?}", gl_config.alpha_size());
+    println!("  Depth size:            {:?}", gl_config.depth_size());
+    println!("  Stencil size:          {:?}", gl_config.stencil_size());
+    println!("  Num samples:           {:?}", gl_config.num_samples());
+    println!("  Srgb capable:          {:?}", gl_config.srgb_capable());
+    println!("  Config surface types:  {:?}", gl_config.config_surface_types());
+    println!("  Hardware accelerated:  {:?}", gl_config.hardware_accelerated());
+    println!("  Supports transparency: {:?}", gl_config.supports_transparency());
+    println!("  API:                   {:?}", gl_config.api());
+    println!();
 }
