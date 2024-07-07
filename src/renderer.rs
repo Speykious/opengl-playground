@@ -26,7 +26,7 @@ struct Square {
     pub stroke_color: Vec4,
 }
 
-const AREA: f32 = 4000.0;
+const AREA: f32 = 5000.0;
 const AREA_BOUND: f32 = AREA * 0.5;
 
 const N_SQUARES: usize = 100_000;
@@ -119,7 +119,7 @@ struct Vertex {
 }
 
 pub struct Renderer {
-    camera: Camera,
+    pub camera: Camera,
 
     square_shader: GLuint,
     vao: GLuint,
@@ -241,8 +241,8 @@ impl Renderer {
 
             #[rustfmt::skip]
             {
-                let a_position   = gl::GetAttribLocation(program, c"position"   .as_ptr()) as GLuint;
-                let a_uv         = gl::GetAttribLocation(program, c"uv"         .as_ptr()) as GLuint;
+                let a_position = gl::GetAttribLocation(program, c"position" .as_ptr()) as GLuint;
+                let a_uv       = gl::GetAttribLocation(program, c"uv"       .as_ptr()) as GLuint;
 
                 gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, size_vertex,  0             as _);
                 gl::VertexAttribPointer(a_uv,       2, gl::FLOAT, gl::FALSE, size_vertex, (2 * size_f32) as _);

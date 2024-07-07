@@ -1,5 +1,6 @@
 use std::{num::NonZeroU32, rc::Rc};
 
+use glam::IVec2;
 use glutin::{
     config::{Config, ConfigTemplateBuilder, GlConfig as _},
     context::{
@@ -11,6 +12,7 @@ use glutin::{
 };
 use glutin_winit::{DisplayBuilder, GlWindow as _};
 use renderer::Renderer;
+use scene::SceneController;
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
@@ -22,6 +24,7 @@ use winit::{
 
 pub mod camera;
 pub mod renderer;
+pub mod scene;
 
 fn main() {
     let event_loop = EventLoop::new().unwrap();
@@ -43,8 +46,10 @@ struct App {
     template_builder: ConfigTemplateBuilder,
     display_builder: DisplayBuilder,
     not_current_gl_context: Option<NotCurrentContext>,
-    renderer: Option<Renderer>,
+    renderer: Option<(Renderer, SceneController)>,
     state: Option<AppState>,
+
+    viewport: IVec2,
 }
 
 impl App {
@@ -79,6 +84,8 @@ impl App {
             not_current_gl_context: None,
             renderer: None,
             state: None,
+
+            viewport: IVec2::default(),
         }
     }
 }
@@ -165,8 +172,14 @@ impl ApplicationHandler for App {
         // The context needs to be current for the Renderer to set up shaders and
         // buffers. It also performs function loading, which needs a current context on
         // WGL.
-        self.renderer
-            .get_or_insert_with(|| Renderer::new(&gl_display, window.as_ref()));
+        self.renderer.get_or_insert_with(|| {
+            let renderer = Renderer::new(&gl_display, window.as_ref());
+            let scene_controller = SceneController::new(&renderer.camera, 0.5);
+            (renderer, scene_controller)
+        });
+
+        let win_size = window.inner_size();
+        self.viewport = IVec2::new(win_size.width as i32, win_size.height as i32);
 
         // Try setting vsync.
         if let Err(res) = gl_surface
@@ -207,10 +220,11 @@ impl ApplicationHandler for App {
                         NonZeroU32::new(size.width).unwrap(),
                         NonZeroU32::new(size.height).unwrap(),
                     );
-                    let renderer = self.renderer.as_mut().unwrap();
-                    renderer.resize(size.width as i32, size.height as i32);
+
+                    self.viewport = IVec2::new(size.width as i32, size.height as i32);
                 }
             }
+
             WindowEvent::CloseRequested
             | WindowEvent::KeyboardInput {
                 event:
@@ -220,7 +234,12 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => event_loop.exit(),
-            _ => (),
+
+            event => {
+                if let Some((renderer, scene_ctrl)) = &mut self.renderer {
+                    scene_ctrl.interact(&event, &renderer.camera)
+                }
+            }
         }
     }
 
@@ -231,8 +250,12 @@ impl ApplicationHandler for App {
             window,
         }) = self.state.as_ref()
         {
-            let renderer = self.renderer.as_mut().unwrap();
+            let (renderer, scene_ctrl) = self.renderer.as_mut().unwrap();
+
+            scene_ctrl.update(&mut renderer.camera);
+            renderer.resize(self.viewport.x, self.viewport.y);
             renderer.draw();
+
             window.request_redraw();
 
             gl_surface.swap_buffers(gl_context).unwrap();
@@ -276,16 +299,28 @@ pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Confi
 
 fn debug_gl_config(gl_config: &glutin::config::Config) {
     println!("OpenGL config:");
-    println!("  Color buffer type:     {:?}", gl_config.color_buffer_type());
+    println!(
+        "  Color buffer type:     {:?}",
+        gl_config.color_buffer_type()
+    );
     println!("  Float pixels:          {:?}", gl_config.float_pixels());
     println!("  Alpha size:            {:?}", gl_config.alpha_size());
     println!("  Depth size:            {:?}", gl_config.depth_size());
     println!("  Stencil size:          {:?}", gl_config.stencil_size());
     println!("  Num samples:           {:?}", gl_config.num_samples());
     println!("  Srgb capable:          {:?}", gl_config.srgb_capable());
-    println!("  Config surface types:  {:?}", gl_config.config_surface_types());
-    println!("  Hardware accelerated:  {:?}", gl_config.hardware_accelerated());
-    println!("  Supports transparency: {:?}", gl_config.supports_transparency());
+    println!(
+        "  Config surface types:  {:?}",
+        gl_config.config_surface_types()
+    );
+    println!(
+        "  Hardware accelerated:  {:?}",
+        gl_config.hardware_accelerated()
+    );
+    println!(
+        "  Supports transparency: {:?}",
+        gl_config.supports_transparency()
+    );
     println!("  API:                   {:?}", gl_config.api());
     println!();
 }
