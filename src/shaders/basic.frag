@@ -1,12 +1,21 @@
-#version 330
+#version 430
 precision mediump float;
 
-in vec2 v_size;
+struct GlslSquare {
+    vec2 size;
+    float roundness;
+    float stroke_width;
+    vec4 fill_color;
+    vec4 stroke_color;
+};
+
+layout(std430, binding = 0) readonly buffer shared_buffer
+{
+    GlslSquare squares[];
+};
+
 in vec2 v_uv;
-in float v_roundness;
-in float v_stroke_width;
-in vec4 v_fill_color;
-in vec4 v_stroke_color;
+in flat int v_shared_idx;
 
 out vec4 FragColor;
 
@@ -18,18 +27,19 @@ float sd_rounded_box(vec2 pos, vec2 size, float radius) {
 }
 
 void main() {
-    vec2 pos = (v_uv - vec2(0.5)) * v_size;
+    GlslSquare square = squares[v_shared_idx];
+    vec2 pos = (v_uv - vec2(0.5)) * square.size;
 
-    float dist = sd_rounded_box(pos, v_size, v_roundness);
+    float dist = sd_rounded_box(pos, square.size, square.roundness);
     float delta = fwidth(dist);
 
     FragColor = mix(
-        mix(
-            v_stroke_color,
-            v_fill_color,
-            smoothstep(-v_stroke_width - delta, -v_stroke_width, dist)
-        ),
-        vec4(0.0),
-        smoothstep(-delta, 0.0, dist)
-    );
+            mix(
+                square.stroke_color,
+                square.fill_color,
+                smoothstep(-square.stroke_width - delta, -square.stroke_width, dist)
+            ),
+            vec4(0.0),
+            smoothstep(-delta, 0.0, dist)
+        );
 }

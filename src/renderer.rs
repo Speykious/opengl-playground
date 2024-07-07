@@ -26,8 +26,10 @@ struct Square {
     pub stroke_color: Vec4,
 }
 
-const AREA: f32 = 300.0;
+const AREA: f32 = 4000.0;
 const AREA_BOUND: f32 = AREA * 0.5;
+
+const N_SQUARES: usize = 100_000;
 
 impl Square {
     fn random(rng: &mut impl Rng) -> Self {
@@ -36,10 +38,10 @@ impl Square {
                 rng.gen_range(-AREA_BOUND..=AREA_BOUND),
                 rng.gen_range(-AREA_BOUND..=AREA_BOUND),
             ),
-            size: Vec2::splat(rng.gen_range(50.0..=100.0)),
+            size: Vec2::splat(rng.gen_range(10.0..=20.0)),
             rotation: rng.gen_range(0.0..TAU),
-            roundness: rng.gen_range(10.0..=30.0),
-            stroke_width: rng.gen_range(5.0..=15.0),
+            roundness: rng.gen_range(1.0..=5.0),
+            stroke_width: rng.gen_range(1.0..=5.0),
             fill_color: vec4(
                 rng.gen_range(0.5..=1.0),
                 rng.gen_range(0.5..=1.0),
@@ -55,15 +57,22 @@ impl Square {
         }
     }
 
+    fn glsl_square(self) -> GlslSquare {
+        GlslSquare {
+            size: self.size,
+            roundness: self.roundness,
+            stroke_width: self.stroke_width,
+            fill_color: self.fill_color,
+            stroke_color: self.stroke_color,
+        }
+    }
+
     fn vertices(self) -> [Vertex; 4] {
         let Self {
             position,
             size,
             rotation,
-            roundness,
-            stroke_width,
-            fill_color,
-            stroke_color,
+            ..
         } = self;
 
         let r = vec2(rotation.cos(), rotation.sin());
@@ -76,15 +85,7 @@ impl Square {
             ((vec2( 0.5, -0.5).rotate(r) * size) + position, vec2(1.0, 1.0)),
         ];
 
-        pos_dims.map(|(position, uv)| Vertex {
-            position,
-            size,
-            uv,
-            roundness,
-            stroke_width,
-            fill_color,
-            stroke_color,
-        })
+        pos_dims.map(|(position, uv)| Vertex { position, uv })
     }
 
     fn indices(&self, square_index: u32) -> [u32; 6] {
@@ -95,13 +96,9 @@ impl Square {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
-struct Vertex {
-    /// position of square
-    position: Vec2,
+struct GlslSquare {
     /// dimension coordinates
     size: Vec2,
-    /// UV coordinates
-    uv: Vec2,
     /// radius of round corners
     roundness: f32,
     /// stroke width
@@ -110,6 +107,15 @@ struct Vertex {
     fill_color: Vec4,
     /// stroke color
     stroke_color: Vec4,
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+struct Vertex {
+    /// position of square
+    position: Vec2,
+    /// UV coordinates
+    uv: Vec2,
 }
 
 pub struct Renderer {
@@ -131,8 +137,6 @@ pub struct Renderer {
     frame_count: u128,
 }
 
-const N_SQUARES: usize = 100;
-
 impl Renderer {
     pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
         let mut squares = Vec::with_capacity(N_SQUARES);
@@ -146,6 +150,10 @@ impl Renderer {
             indices.push(square.indices(i));
             squares.push(square);
         }
+
+        let storage_buffer = (squares.iter().copied())
+            .map(Square::glsl_square)
+            .collect::<Vec<_>>();
 
         unsafe {
             gl::load_with(|symbol| {
@@ -189,6 +197,25 @@ impl Renderer {
             gl::GenVertexArrays(1, &mut vao);
             gl::BindVertexArray(vao);
 
+            let mut ssbo: u32 = 0;
+            gl::GenBuffers(1, &mut ssbo);
+            gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, ssbo);
+
+            let storage_buffer_len = mem::size_of_val(storage_buffer.as_slice()) as GLsizeiptr;
+            dbg!(storage_buffer_len);
+            gl::BufferData(
+                gl::SHADER_STORAGE_BUFFER,
+                storage_buffer_len,
+                storage_buffer.as_slice().as_ptr() as *const _,
+                gl::STATIC_DRAW,
+            );
+            gl::BindBufferRange(gl::SHADER_STORAGE_BUFFER, 0, ssbo, 0, storage_buffer_len);
+
+            let camera = Camera {
+                scale: Vec2::splat(window.scale_factor() as f32 * 1.8),
+                ..Default::default()
+            };
+
             let mut vbo: u32 = 0;
             gl::GenBuffers(1, &mut vbo);
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
@@ -214,34 +241,14 @@ impl Renderer {
 
             #[rustfmt::skip]
             {
-                let a_position     = gl::GetAttribLocation(program, c"position"     .as_ptr()) as GLuint;
-                let a_size         = gl::GetAttribLocation(program, c"size"         .as_ptr()) as GLuint;
-                let a_uv           = gl::GetAttribLocation(program, c"uv"           .as_ptr()) as GLuint;
-                let a_roundness    = gl::GetAttribLocation(program, c"roundness"    .as_ptr()) as GLuint;
-                let a_stroke_width = gl::GetAttribLocation(program, c"stroke_width" .as_ptr()) as GLuint;
-                let a_fill_color   = gl::GetAttribLocation(program, c"fill_color"   .as_ptr()) as GLuint;
-                let a_stroke_color = gl::GetAttribLocation(program, c"stroke_color" .as_ptr()) as GLuint;
+                let a_position   = gl::GetAttribLocation(program, c"position"   .as_ptr()) as GLuint;
+                let a_uv         = gl::GetAttribLocation(program, c"uv"         .as_ptr()) as GLuint;
 
-                gl::VertexAttribPointer(a_position,     2, gl::FLOAT, 0, size_vertex,   0             as _);
-                gl::VertexAttribPointer(a_size,         2, gl::FLOAT, 0, size_vertex, ( 2 * size_f32) as _);
-                gl::VertexAttribPointer(a_uv,           2, gl::FLOAT, 0, size_vertex, ( 4 * size_f32) as _);
-                gl::VertexAttribPointer(a_roundness,    1, gl::FLOAT, 0, size_vertex, ( 6 * size_f32) as _);
-                gl::VertexAttribPointer(a_stroke_width, 1, gl::FLOAT, 0, size_vertex, ( 7 * size_f32) as _);
-                gl::VertexAttribPointer(a_fill_color,   4, gl::FLOAT, 0, size_vertex, ( 8 * size_f32) as _);
-                gl::VertexAttribPointer(a_stroke_color, 4, gl::FLOAT, 0, size_vertex, (12 * size_f32) as _);
+                gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, size_vertex,  0             as _);
+                gl::VertexAttribPointer(a_uv,       2, gl::FLOAT, gl::FALSE, size_vertex, (2 * size_f32) as _);
 
-                gl::EnableVertexAttribArray(a_position     as GLuint);
-                gl::EnableVertexAttribArray(a_size         as GLuint);
-                gl::EnableVertexAttribArray(a_uv           as GLuint);
-                gl::EnableVertexAttribArray(a_roundness    as GLuint);
-                gl::EnableVertexAttribArray(a_stroke_width as GLuint);
-                gl::EnableVertexAttribArray(a_fill_color   as GLuint);
-                gl::EnableVertexAttribArray(a_stroke_color as GLuint);
-            };
-
-            let camera = Camera {
-                scale: Vec2::splat(window.scale_factor() as f32 * 1.8),
-                ..Default::default()
+                gl::EnableVertexAttribArray(a_position   as GLuint);
+                gl::EnableVertexAttribArray(a_uv         as GLuint);
             };
 
             Self {
@@ -274,9 +281,8 @@ impl Renderer {
             *verts = square.vertices();
         }
 
+        self.draw_with_clear_color(0., 0., 0., 0.5);
         self.frame_count += 1;
-
-        self.draw_with_clear_color(0., 0., 0., 0.5)
     }
 
     pub fn draw_with_clear_color(&mut self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
@@ -287,7 +293,6 @@ impl Renderer {
             gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
 
-            // upload new data here
             gl::BufferSubData(
                 gl::ARRAY_BUFFER,
                 0,
@@ -339,7 +344,7 @@ unsafe fn create_shader_program(vert_source: &[u8], frag_source: &[u8]) -> GLuin
         gl::ShaderSource(vert_shader, 1, &source, &length);
         gl::CompileShader(vert_shader);
     }
-    verify_shader(vert_shader);
+    verify_shader(vert_shader, "vert");
 
     let frag_shader = gl::CreateShader(gl::FRAGMENT_SHADER);
     {
@@ -348,7 +353,7 @@ unsafe fn create_shader_program(vert_source: &[u8], frag_source: &[u8]) -> GLuin
         gl::ShaderSource(frag_shader, 1, &source, &length);
         gl::CompileShader(frag_shader);
     }
-    verify_shader(frag_shader);
+    verify_shader(frag_shader, "frag");
 
     let program = gl::CreateProgram();
     {
@@ -366,7 +371,7 @@ unsafe fn create_shader_program(vert_source: &[u8], frag_source: &[u8]) -> GLuin
     program
 }
 
-unsafe fn verify_shader(shader: GLuint) {
+unsafe fn verify_shader(shader: GLuint, ty: &str) {
     let mut status = 0;
     gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut status);
 
@@ -380,7 +385,7 @@ unsafe fn verify_shader(shader: GLuint) {
             gl::GetShaderInfoLog(shader, length, &mut length, log.as_str().as_ptr() as *mut _);
             log.truncate(length as usize);
 
-            eprintln!("SHADER COMPILE ERROR: {log}");
+            eprintln!("SHADER COMPILE ERROR ({ty}): {log}");
         }
     }
 }
