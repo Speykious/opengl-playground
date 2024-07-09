@@ -71,7 +71,6 @@ impl App {
         // with transparency ourselves inside the `reduce`.
         let template_builder = ConfigTemplateBuilder::new()
             .with_alpha_size(8)
-            // .with_multisampling(4)
             .with_transparency(cfg!(target_os = "macos"));
 
         let display_builder =

@@ -16,7 +16,7 @@ use crate::camera::Camera;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-struct Square {
+struct Rect {
     pub position: Vec2,
     pub size: Vec2,
     pub rotation: f32,
@@ -26,16 +26,16 @@ struct Square {
     pub stroke_color: u32,
 }
 
-const N_SQUARES: usize = 100_000;
+const N_RECTS: usize = 100_000;
 
-impl Square {
+impl Rect {
     fn random(rng: &mut impl Rng, i: u32) -> Self {
-        let width = (N_SQUARES as f32).sqrt() as u32;
+        let width = (N_RECTS as f32).sqrt() as u32;
         let hwidth = width as f32 * 0.5;
 
         Self {
             position: (vec2((i % width) as f32, (i / width) as f32) - hwidth) * 16.0,
-            size: Vec2::splat(rng.gen_range(10.0..=20.0)),
+            size: vec2(rng.gen_range(10.0..=20.0), rng.gen_range(10.0..=20.0)),
             rotation: rng.gen_range(0.0..TAU),
             border_radius: rng.gen_range(1.0..=5.0),
             border_width: rng.gen_range(1.0..=5.0),
@@ -76,10 +76,10 @@ impl Square {
 
         #[rustfmt::skip]
         let pos_dims = [
-            (vec2(-0.5, -0.5).rotate(r) * size) + position,
-            (vec2(-0.5,  0.5).rotate(r) * size) + position,
-            (vec2( 0.5,  0.5).rotate(r) * size) + position,
-            (vec2( 0.5, -0.5).rotate(r) * size) + position,
+            ((vec2(-0.5, -0.5) * size).rotate(r)) + position,
+            ((vec2(-0.5,  0.5) * size).rotate(r)) + position,
+            ((vec2( 0.5,  0.5) * size).rotate(r)) + position,
+            ((vec2( 0.5, -0.5) * size).rotate(r)) + position,
         ];
 
         pos_dims.map(|position| Vertex { position })
@@ -109,21 +109,21 @@ struct GlslSquare {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 struct Vertex {
-    /// position of square
+    /// position of rect
     position: Vec2,
 }
 
 pub struct Renderer {
     pub camera: Camera,
 
-    square_shader: GLuint,
+    round_rect_shader: GLuint,
     vao: GLuint,
     vbo: GLuint,
     ebo: GLuint,
 
     u_mvp_square: i32,
 
-    squares: Vec<Square>,
+    rects: Vec<Rect>,
     vertices: Vec<[Vertex; 4]>,
     indices: Vec<[u32; 6]>,
 
@@ -134,20 +134,20 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
-        let mut squares = Vec::with_capacity(N_SQUARES);
-        let mut vertices = Vec::with_capacity(N_SQUARES);
-        let mut indices = Vec::with_capacity(N_SQUARES);
+        let mut squares = Vec::with_capacity(N_RECTS);
+        let mut vertices = Vec::with_capacity(N_RECTS);
+        let mut indices = Vec::with_capacity(N_RECTS);
 
         let mut rng = rand::thread_rng();
-        for i in 0..(N_SQUARES as u32) {
-            let square = Square::random(&mut rng, i);
+        for i in 0..(N_RECTS as u32) {
+            let square = Rect::random(&mut rng, i);
             vertices.push(square.vertices());
             indices.push(square.indices(i));
             squares.push(square);
         }
 
         let storage_buffer = (squares.iter().copied())
-            .map(Square::glsl_square)
+            .map(Rect::glsl_square)
             .collect::<Vec<_>>();
 
         unsafe {
@@ -175,18 +175,17 @@ impl Renderer {
                 gl::Enable(gl::DEBUG_OUTPUT);
             }
 
+            // Normal blending
             gl::Enable(gl::BLEND);
             gl::BlendEquation(gl::FUNC_ADD);
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
-            gl::Enable(gl::MULTISAMPLE);
-
-            let square_shader = create_shader_program(
-                include_bytes!("shaders/basic.vert"),
-                include_bytes!("shaders/basic.frag"),
+            let round_rect_shader = create_shader_program(
+                include_bytes!("shaders/round-rect.vert"),
+                include_bytes!("shaders/round-rect.frag"),
             );
 
-            let u_mvp_square = gl::GetUniformLocation(square_shader, c"u_mvp".as_ptr());
+            let u_mvp_square = gl::GetUniformLocation(round_rect_shader, c"u_mvp".as_ptr());
 
             let mut vao: u32 = 0;
             gl::GenVertexArrays(1, &mut vao);
@@ -233,21 +232,21 @@ impl Renderer {
 
             let size_vertex = mem::size_of::<Vertex>() as GLsizei;
 
-            let a_position = gl::GetAttribLocation(square_shader, c"position".as_ptr()) as GLuint;
+            let a_position = gl::GetAttribLocation(round_rect_shader, c"position".as_ptr()) as GLuint;
             gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, size_vertex, 0 as _);
             gl::EnableVertexAttribArray(a_position as GLuint);
 
             Self {
                 camera,
 
-                square_shader,
+                round_rect_shader,
                 vao,
                 vbo,
                 ebo,
 
                 u_mvp_square,
 
-                squares,
+                rects: squares,
                 vertices,
                 indices,
 
@@ -262,7 +261,7 @@ impl Renderer {
         let dt = self.last_instant.elapsed().as_secs_f32();
         self.last_instant = Instant::now();
 
-        for (square, verts) in (self.squares.iter_mut()).zip(self.vertices.iter_mut()) {
+        for (square, verts) in (self.rects.iter_mut()).zip(self.vertices.iter_mut()) {
             square.rotation += dt * PI * 0.025;
             *verts = square.vertices();
         }
@@ -287,7 +286,7 @@ impl Renderer {
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
-            gl::UseProgram(self.square_shader);
+            gl::UseProgram(self.round_rect_shader);
             gl::DrawElements(
                 gl::TRIANGLES,
                 mem::size_of_val(self.indices.as_slice()) as GLsizei,
@@ -303,7 +302,7 @@ impl Renderer {
 
             let matrix = self.camera.matrix(Vec2::new(width as f32, height as f32));
 
-            gl::UseProgram(self.square_shader);
+            gl::UseProgram(self.round_rect_shader);
             gl::UniformMatrix4fv(self.u_mvp_square, 1, gl::FALSE, matrix.as_ref().as_ptr());
         }
     }
@@ -317,7 +316,7 @@ impl Drop for Renderer {
         println!("Average FPS:  {}", fps);
 
         unsafe {
-            gl::DeleteProgram(self.square_shader);
+            gl::DeleteProgram(self.round_rect_shader);
             gl::DeleteBuffers(1, &self.vbo);
             gl::DeleteVertexArrays(1, &self.vao);
         }
