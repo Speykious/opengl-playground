@@ -34,7 +34,7 @@ impl Square {
         let hwidth = width as f32 * 0.5;
 
         Self {
-            position: (vec2((i % width) as f32, (i / width) as f32) - hwidth) * 25.0,
+            position: (vec2((i % width) as f32, (i / width) as f32) - hwidth) * 16.0,
             size: Vec2::splat(rng.gen_range(10.0..=20.0)),
             rotation: rng.gen_range(0.0..TAU),
             border_radius: rng.gen_range(1.0..=5.0),
@@ -76,13 +76,13 @@ impl Square {
 
         #[rustfmt::skip]
         let pos_dims = [
-            ((vec2(-0.5, -0.5).rotate(r) * size) + position, vec2(0.0, 1.0)),
-            ((vec2(-0.5,  0.5).rotate(r) * size) + position, vec2(0.0, 0.0)),
-            ((vec2( 0.5,  0.5).rotate(r) * size) + position, vec2(1.0, 0.0)),
-            ((vec2( 0.5, -0.5).rotate(r) * size) + position, vec2(1.0, 1.0)),
+            (vec2(-0.5, -0.5).rotate(r) * size) + position,
+            (vec2(-0.5,  0.5).rotate(r) * size) + position,
+            (vec2( 0.5,  0.5).rotate(r) * size) + position,
+            (vec2( 0.5, -0.5).rotate(r) * size) + position,
         ];
 
-        pos_dims.map(|(position, uv)| Vertex { position, uv })
+        pos_dims.map(|position| Vertex { position })
     }
 
     fn indices(&self, square_index: u32) -> [u32; 6] {
@@ -111,8 +111,6 @@ struct GlslSquare {
 struct Vertex {
     /// position of square
     position: Vec2,
-    /// UV coordinates
-    uv: Vec2,
 }
 
 pub struct Renderer {
@@ -123,7 +121,7 @@ pub struct Renderer {
     vbo: GLuint,
     ebo: GLuint,
 
-    u_mvp: i32,
+    u_mvp_square: i32,
 
     squares: Vec<Square>,
     vertices: Vec<[Vertex; 4]>,
@@ -183,12 +181,12 @@ impl Renderer {
 
             gl::Enable(gl::MULTISAMPLE);
 
-            let program = create_shader_program(
+            let square_shader = create_shader_program(
                 include_bytes!("shaders/basic.vert"),
                 include_bytes!("shaders/basic.frag"),
             );
 
-            let u_mvp = gl::GetUniformLocation(program, c"u_mvp".as_ptr());
+            let u_mvp_square = gl::GetUniformLocation(square_shader, c"u_mvp".as_ptr());
 
             let mut vao: u32 = 0;
             gl::GenVertexArrays(1, &mut vao);
@@ -234,29 +232,20 @@ impl Renderer {
             );
 
             let size_vertex = mem::size_of::<Vertex>() as GLsizei;
-            let size_f32 = mem::size_of::<f32>();
 
-            #[rustfmt::skip]
-            {
-                let a_position = gl::GetAttribLocation(program, c"position" .as_ptr()) as GLuint;
-                let a_uv       = gl::GetAttribLocation(program, c"uv"       .as_ptr()) as GLuint;
-
-                gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, size_vertex,  0             as _);
-                gl::VertexAttribPointer(a_uv,       2, gl::FLOAT, gl::FALSE, size_vertex, (2 * size_f32) as _);
-
-                gl::EnableVertexAttribArray(a_position   as GLuint);
-                gl::EnableVertexAttribArray(a_uv         as GLuint);
-            };
+            let a_position = gl::GetAttribLocation(square_shader, c"position".as_ptr()) as GLuint;
+            gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, size_vertex, 0 as _);
+            gl::EnableVertexAttribArray(a_position as GLuint);
 
             Self {
                 camera,
 
-                square_shader: program,
+                square_shader,
                 vao,
                 vbo,
                 ebo,
 
-                u_mvp,
+                u_mvp_square,
 
                 squares,
                 vertices,
@@ -284,8 +273,6 @@ impl Renderer {
 
     pub fn draw_with_clear_color(&mut self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
         unsafe {
-            gl::UseProgram(self.square_shader);
-
             gl::BindVertexArray(self.vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
@@ -299,6 +286,8 @@ impl Renderer {
 
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
+
+            gl::UseProgram(self.square_shader);
             gl::DrawElements(
                 gl::TRIANGLES,
                 mem::size_of_val(self.indices.as_slice()) as GLsizei,
@@ -313,7 +302,9 @@ impl Renderer {
             gl::Viewport(0, 0, width, height);
 
             let matrix = self.camera.matrix(Vec2::new(width as f32, height as f32));
-            gl::UniformMatrix4fv(self.u_mvp, 1, gl::FALSE, matrix.as_ref().as_ptr());
+
+            gl::UseProgram(self.square_shader);
+            gl::UniformMatrix4fv(self.u_mvp_square, 1, gl::FALSE, matrix.as_ref().as_ptr());
         }
     }
 }

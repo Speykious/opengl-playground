@@ -15,7 +15,7 @@ layout(std430, binding = 0) readonly buffer shared_buffer
 };
 
 in vec2 v_uv;
-in flat int v_shared_idx;
+in flat int v_square_id;
 
 out vec4 FragColor;
 
@@ -27,8 +27,8 @@ float sd_rounded_box(vec2 pos, vec2 size, float radius) {
 }
 
 void main() {
-    GlslSquare square = squares[v_shared_idx];
-    vec2 pos = (v_uv - vec2(0.5)) * square.size;
+    GlslSquare square = squares[v_square_id];
+    vec2 pos = v_uv * square.size;
 
     float dist = sd_rounded_box(pos, square.size, square.border_radius);
     float delta = fwidth(dist);
