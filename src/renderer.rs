@@ -7,7 +7,7 @@ use std::{
 };
 
 use gl::types::{GLchar, GLenum, GLfloat, GLsizei, GLsizeiptr, GLuint};
-use glam::{vec2, vec4, Vec2, Vec4};
+use glam::{vec2, Vec2};
 use glutin::display::GlDisplay;
 use rand::Rng;
 use winit::window::Window;
@@ -20,48 +20,45 @@ struct Square {
     pub position: Vec2,
     pub size: Vec2,
     pub rotation: f32,
-    pub roundness: f32,
-    pub stroke_width: f32,
-    pub fill_color: Vec4,
-    pub stroke_color: Vec4,
+    pub border_radius: f32,
+    pub border_width: f32,
+    pub fill_color: u32,
+    pub stroke_color: u32,
 }
-
-const AREA: f32 = 5000.0;
-const AREA_BOUND: f32 = AREA * 0.5;
 
 const N_SQUARES: usize = 100_000;
 
 impl Square {
-    fn random(rng: &mut impl Rng) -> Self {
+    fn random(rng: &mut impl Rng, i: u32) -> Self {
+        let width = (N_SQUARES as f32).sqrt() as u32;
+        let hwidth = width as f32 * 0.5;
+
         Self {
-            position: vec2(
-                rng.gen_range(-AREA_BOUND..=AREA_BOUND),
-                rng.gen_range(-AREA_BOUND..=AREA_BOUND),
-            ),
+            position: (vec2((i % width) as f32, (i / width) as f32) - hwidth) * 25.0,
             size: Vec2::splat(rng.gen_range(10.0..=20.0)),
             rotation: rng.gen_range(0.0..TAU),
-            roundness: rng.gen_range(1.0..=5.0),
-            stroke_width: rng.gen_range(1.0..=5.0),
-            fill_color: vec4(
-                rng.gen_range(0.5..=1.0),
-                rng.gen_range(0.5..=1.0),
-                rng.gen_range(0.5..=1.0),
-                rng.gen_range(0.5..=1.0),
-            ),
-            stroke_color: vec4(
-                rng.gen_range(0.1..=0.5),
-                rng.gen_range(0.1..=0.5),
-                rng.gen_range(0.1..=0.5),
-                rng.gen_range(0.5..=1.0),
-            ),
+            border_radius: rng.gen_range(1.0..=5.0),
+            border_width: rng.gen_range(1.0..=5.0),
+            fill_color: u32::from_le_bytes([
+                rng.gen_range(128..=255),
+                rng.gen_range(128..=255),
+                rng.gen_range(128..=255),
+                rng.gen_range(128..=255),
+            ]),
+            stroke_color: u32::from_le_bytes([
+                rng.gen_range(24..=128),
+                rng.gen_range(24..=128),
+                rng.gen_range(24..=128),
+                rng.gen_range(128..=255),
+            ]),
         }
     }
 
     fn glsl_square(self) -> GlslSquare {
         GlslSquare {
             size: self.size,
-            roundness: self.roundness,
-            stroke_width: self.stroke_width,
+            border_radius: self.border_radius,
+            border_width: self.border_width,
             fill_color: self.fill_color,
             stroke_color: self.stroke_color,
         }
@@ -100,13 +97,13 @@ struct GlslSquare {
     /// dimension coordinates
     size: Vec2,
     /// radius of round corners
-    roundness: f32,
-    /// stroke width
-    stroke_width: f32,
+    border_radius: f32,
+    /// border width
+    border_width: f32,
     /// color
-    fill_color: Vec4,
+    fill_color: u32,
     /// stroke color
-    stroke_color: Vec4,
+    stroke_color: u32,
 }
 
 #[repr(C)]
@@ -145,7 +142,7 @@ impl Renderer {
 
         let mut rng = rand::thread_rng();
         for i in 0..(N_SQUARES as u32) {
-            let square = Square::random(&mut rng);
+            let square = Square::random(&mut rng, i);
             vertices.push(square.vertices());
             indices.push(square.indices(i));
             squares.push(square);
@@ -182,7 +179,7 @@ impl Renderer {
 
             gl::Enable(gl::BLEND);
             gl::BlendEquation(gl::FUNC_ADD);
-            gl::BlendFunc(gl::ONE, gl::ONE_MINUS_SRC_ALPHA);
+            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
             gl::Enable(gl::MULTISAMPLE);
 
@@ -277,11 +274,11 @@ impl Renderer {
         self.last_instant = Instant::now();
 
         for (square, verts) in (self.squares.iter_mut()).zip(self.vertices.iter_mut()) {
-            square.rotation += dt * PI * 0.25;
+            square.rotation += dt * PI * 0.025;
             *verts = square.vertices();
         }
 
-        self.draw_with_clear_color(0., 0., 0., 0.5);
+        self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
         self.frame_count += 1;
     }
 

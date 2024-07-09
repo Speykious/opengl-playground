@@ -71,7 +71,7 @@ impl App {
         // with transparency ourselves inside the `reduce`.
         let template_builder = ConfigTemplateBuilder::new()
             .with_alpha_size(8)
-            .with_multisampling(4)
+            // .with_multisampling(4)
             .with_transparency(cfg!(target_os = "macos"));
 
         let display_builder =
@@ -279,20 +279,6 @@ pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Confi
             } else {
                 accum
             }
-            // let acc_has_trans = accum.supports_transparency().unwrap_or(false);
-            // let conf_has_trans = config.supports_transparency().unwrap_or(false);
-
-            // if conf_has_trans && config.num_samples() == 4 {
-            //     config
-            // } else if acc_has_trans && accum.num_samples() == 4 {
-            //     accum
-            // } else if conf_has_trans {
-            //     config
-            // } else if acc_has_trans {
-            //     accum
-            // } else {
-            //     config
-            // }
         })
         .unwrap()
 }
