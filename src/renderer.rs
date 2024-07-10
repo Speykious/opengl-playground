@@ -14,6 +14,11 @@ use winit::window::Window;
 
 use crate::camera::Camera;
 
+const N_RECTS: usize = 100_000;
+
+const SRC_VERT_QUAD: &[u8] = include_bytes!("shaders/quad.vert");
+const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("shaders/round-rect.frag");
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct Rect {
@@ -25,8 +30,6 @@ struct Rect {
     pub fill_color: u32,
     pub stroke_color: u32,
 }
-
-const N_RECTS: usize = 100_000;
 
 impl Rect {
     fn random(rng: &mut impl Rng, i: u32) -> Self {
@@ -180,10 +183,7 @@ impl Renderer {
             gl::BlendEquation(gl::FUNC_ADD);
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
-            let round_rect_shader = create_shader_program(
-                include_bytes!("shaders/round-rect.vert"),
-                include_bytes!("shaders/round-rect.frag"),
-            );
+            let round_rect_shader = create_shader_program(SRC_VERT_QUAD, SRC_FRAG_ROUND_RECT);
 
             let u_mvp_square = gl::GetUniformLocation(round_rect_shader, c"u_mvp".as_ptr());
 
