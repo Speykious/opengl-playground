@@ -1,21 +1,12 @@
-#version 430
+#version 330
 precision mediump float;
 
-struct GlslRect {
-    vec2 size;
-    float border_radius;
-    float border_width;
-    uint fill_color;
-    uint stroke_color;
-};
-
-layout(std430, binding = 0) readonly buffer shared_buffer
-{
-    GlslRect rects[];
-};
-
 in vec2 v_uv;
-in flat int v_rect_id;
+in vec2 v_size;
+in vec4 v_fill_color;
+in vec4 v_stroke_color;
+in float v_border_radius;
+in float v_border_width;
 
 out vec4 FragColor;
 
@@ -27,26 +18,22 @@ float sd_rounded_box(vec2 pos, vec2 size, float radius) {
 }
 
 void main() {
-    GlslRect rect = rects[v_rect_id];
-    vec2 pos = v_uv * rect.size;
+    vec2 pos = v_uv * v_size;
 
-    float dist = sd_rounded_box(pos, rect.size, rect.border_radius);
+    float dist = sd_rounded_box(pos, v_size, v_border_radius);
     float delta = fwidth(dist);
 
     if (dist > 0.0) {
         discard;
     }
 
-    vec4 fill_color = unpackUnorm4x8(rect.fill_color);
-    vec4 stroke_color = unpackUnorm4x8(rect.stroke_color);
-
     FragColor = mix(
             mix(
-                fill_color,
-                stroke_color,
-                smoothstep(-rect.border_width - delta, -rect.border_width, dist)
+                v_fill_color,
+                v_stroke_color,
+                smoothstep(-v_border_width - delta, -v_border_width, dist)
             ),
-            vec4(stroke_color.rgb, 0.0),
+            vec4(v_stroke_color.rgb, 0.0),
             smoothstep(-delta, 0.0, dist)
         );
 }

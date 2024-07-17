@@ -56,7 +56,6 @@ impl App {
     fn new() -> Self {
         let win_attribs = WindowAttributes::default()
             .with_active(true)
-            .with_transparent(true)
             .with_theme(Some(Theme::Dark))
             .with_title("OpenGL Squares")
             .with_resizable(true);

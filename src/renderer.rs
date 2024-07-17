@@ -7,7 +7,7 @@ use std::{
 };
 
 use gl::types::{GLchar, GLenum, GLfloat, GLsizei, GLsizeiptr, GLuint};
-use glam::{vec2, Vec2};
+use glam::{vec2, Vec2, Vec4};
 use glutin::display::GlDisplay;
 use rand::Rng;
 use winit::window::Window;
@@ -57,22 +57,15 @@ impl Rect {
         }
     }
 
-    fn glsl_square(self) -> GlslSquare {
-        GlslSquare {
-            size: self.size,
-            border_radius: self.border_radius,
-            border_width: self.border_width,
-            fill_color: self.fill_color,
-            stroke_color: self.stroke_color,
-        }
-    }
-
     fn vertices(self) -> [Vertex; 4] {
         let Self {
             position,
             size,
             rotation,
-            ..
+            border_radius,
+            border_width,
+            fill_color,
+            stroke_color,
         } = self;
 
         let r = vec2(rotation.cos(), rotation.sin());
@@ -85,7 +78,14 @@ impl Rect {
             ((vec2( 0.5, -0.5) * size).rotate(r)) + position,
         ];
 
-        pos_dims.map(|position| Vertex { position })
+        pos_dims.map(|position| Vertex {
+            position,
+            size,
+            fill_color: Vec4::from_array(fill_color.to_le_bytes().map(|n| n as f32)) / 255.0,
+            stroke_color: Vec4::from_array(stroke_color.to_le_bytes().map(|n| n as f32)) / 255.0,
+            border_radius,
+            border_width,
+        })
     }
 
     fn indices(&self, square_index: u32) -> [u32; 6] {
@@ -96,24 +96,13 @@ impl Rect {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
-struct GlslSquare {
-    /// dimension coordinates
-    size: Vec2,
-    /// radius of round corners
-    border_radius: f32,
-    /// border width
-    border_width: f32,
-    /// color
-    fill_color: u32,
-    /// stroke color
-    stroke_color: u32,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
 struct Vertex {
-    /// position of rect
     position: Vec2,
+    size: Vec2,
+    fill_color: Vec4,
+    stroke_color: Vec4,
+    border_radius: f32,
+    border_width: f32,
 }
 
 pub struct Renderer {
@@ -148,10 +137,6 @@ impl Renderer {
             indices.push(square.indices(i));
             squares.push(square);
         }
-
-        let storage_buffer = (squares.iter().copied())
-            .map(Rect::glsl_square)
-            .collect::<Vec<_>>();
 
         unsafe {
             gl::load_with(|symbol| {
@@ -195,16 +180,6 @@ impl Renderer {
             gl::GenBuffers(1, &mut ssbo);
             gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, ssbo);
 
-            let storage_buffer_len = mem::size_of_val(storage_buffer.as_slice()) as GLsizeiptr;
-            dbg!(storage_buffer_len);
-            gl::BufferData(
-                gl::SHADER_STORAGE_BUFFER,
-                storage_buffer_len,
-                storage_buffer.as_slice().as_ptr() as *const _,
-                gl::STATIC_DRAW,
-            );
-            gl::BindBufferRange(gl::SHADER_STORAGE_BUFFER, 0, ssbo, 0, storage_buffer_len);
-
             let camera = Camera {
                 scale: Vec2::splat(window.scale_factor() as f32 * 1.8),
                 ..Default::default()
@@ -231,10 +206,31 @@ impl Renderer {
             );
 
             let size_vertex = mem::size_of::<Vertex>() as GLsizei;
+            let size_f32 = mem::size_of::<f32>() as GLsizei;
 
-            let a_position = gl::GetAttribLocation(round_rect_shader, c"position".as_ptr()) as GLuint;
-            gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, size_vertex, 0 as _);
-            gl::EnableVertexAttribArray(a_position as GLuint);
+            #[rustfmt::skip]
+            {
+                let a_position      = gl::GetAttribLocation(round_rect_shader, c"position"      .as_ptr()) as GLuint;
+                let a_size          = gl::GetAttribLocation(round_rect_shader, c"size"          .as_ptr()) as GLuint;
+                let a_fill_color    = gl::GetAttribLocation(round_rect_shader, c"fill_color"    .as_ptr()) as GLuint;
+                let a_stroke_color  = gl::GetAttribLocation(round_rect_shader, c"stroke_color"  .as_ptr()) as GLuint;
+                let a_border_radius = gl::GetAttribLocation(round_rect_shader, c"border_radius" .as_ptr()) as GLuint;
+                let a_border_width  = gl::GetAttribLocation(round_rect_shader, c"border_width"  .as_ptr()) as GLuint;
+
+                gl::VertexAttribPointer(a_position,      2, gl::FLOAT, gl::FALSE, size_vertex,   0             as _);
+                gl::VertexAttribPointer(a_size,          2, gl::FLOAT, gl::FALSE, size_vertex, ( 2 * size_f32) as _);
+                gl::VertexAttribPointer(a_fill_color,    4, gl::FLOAT, gl::FALSE, size_vertex, ( 4 * size_f32) as _);
+                gl::VertexAttribPointer(a_stroke_color,  4, gl::FLOAT, gl::FALSE, size_vertex, ( 8 * size_f32) as _);
+                gl::VertexAttribPointer(a_border_radius, 1, gl::FLOAT, gl::FALSE, size_vertex, (12 * size_f32) as _);
+                gl::VertexAttribPointer(a_border_width,  1, gl::FLOAT, gl::FALSE, size_vertex, (13 * size_f32) as _);
+
+                gl::EnableVertexAttribArray(a_position      as GLuint);
+                gl::EnableVertexAttribArray(a_size          as GLuint);
+                gl::EnableVertexAttribArray(a_fill_color    as GLuint);
+                gl::EnableVertexAttribArray(a_stroke_color  as GLuint);
+                gl::EnableVertexAttribArray(a_border_radius as GLuint);
+                gl::EnableVertexAttribArray(a_border_width  as GLuint);
+            };
 
             Self {
                 camera,
