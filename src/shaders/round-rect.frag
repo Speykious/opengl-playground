@@ -7,6 +7,7 @@ in vec4 v_fill_color;
 in vec4 v_stroke_color;
 in float v_border_radius;
 in float v_border_width;
+in float v_intensity;
 
 out vec4 FragColor;
 
@@ -27,7 +28,7 @@ void main() {
         discard;
     }
 
-    FragColor = mix(
+    vec4 frag_color = mix(
             mix(
                 v_fill_color,
                 v_stroke_color,
@@ -36,4 +37,6 @@ void main() {
             vec4(v_stroke_color.rgb, 0.0),
             smoothstep(-delta, 0.0, dist)
         );
+
+    FragColor = vec4(frag_color.rgb * v_intensity, frag_color.a);
 }

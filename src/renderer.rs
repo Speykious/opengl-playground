@@ -69,7 +69,7 @@ impl Rect {
         }
     }
 
-    fn vertices(self) -> [Vertex; 4] {
+    fn vertices(self, intensity: f32) -> [Vertex; 4] {
         let Self {
             position,
             size,
@@ -97,6 +97,7 @@ impl Rect {
             stroke_color: Vec4::from_array(stroke_color.to_le_bytes().map(|n| n as f32)) / 255.0,
             border_radius,
             border_width,
+            intensity,
         })
     }
 
@@ -115,6 +116,7 @@ struct Vertex {
     stroke_color: Vec4,
     border_radius: f32,
     border_width: f32,
+    intensity: f32,
 }
 
 pub struct Renderer {
@@ -151,13 +153,13 @@ impl Renderer {
         let mut rng = rand::thread_rng();
         for i in 0..(N_RECTS as u32) {
             let square = Rect::random(&mut rng, i, area_width);
-            vertices.push(square.vertices());
+            vertices.push(square.vertices(0.5));
             indices.push(square.indices(i));
             squares.push(square);
         }
 
         let camera = Camera {
-            scale: Vec2::splat(window.scale_factor() as f32 * 1.8),
+            scale: Vec2::splat(window.scale_factor() as f32),
             ..Default::default()
         };
 
@@ -234,6 +236,7 @@ impl Renderer {
                 let a_stroke_color  = gl::GetAttribLocation(round_rect_shader, c"stroke_color"  .as_ptr()) as GLuint;
                 let a_border_radius = gl::GetAttribLocation(round_rect_shader, c"border_radius" .as_ptr()) as GLuint;
                 let a_border_width  = gl::GetAttribLocation(round_rect_shader, c"border_width"  .as_ptr()) as GLuint;
+                let a_intensity     = gl::GetAttribLocation(round_rect_shader, c"intensity"     .as_ptr()) as GLuint;
 
                 gl::VertexAttribPointer(a_position,      2, gl::FLOAT, gl::FALSE, size_vertex,   0             as _);
                 gl::VertexAttribPointer(a_size,          2, gl::FLOAT, gl::FALSE, size_vertex, ( 2 * size_f32) as _);
@@ -241,6 +244,7 @@ impl Renderer {
                 gl::VertexAttribPointer(a_stroke_color,  4, gl::FLOAT, gl::FALSE, size_vertex, ( 8 * size_f32) as _);
                 gl::VertexAttribPointer(a_border_radius, 1, gl::FLOAT, gl::FALSE, size_vertex, (12 * size_f32) as _);
                 gl::VertexAttribPointer(a_border_width,  1, gl::FLOAT, gl::FALSE, size_vertex, (13 * size_f32) as _);
+                gl::VertexAttribPointer(a_intensity,     1, gl::FLOAT, gl::FALSE, size_vertex, (14 * size_f32) as _);
 
                 gl::EnableVertexAttribArray(a_position      as GLuint);
                 gl::EnableVertexAttribArray(a_size          as GLuint);
@@ -248,6 +252,7 @@ impl Renderer {
                 gl::EnableVertexAttribArray(a_stroke_color  as GLuint);
                 gl::EnableVertexAttribArray(a_border_radius as GLuint);
                 gl::EnableVertexAttribArray(a_border_width  as GLuint);
+                gl::EnableVertexAttribArray(a_intensity     as GLuint);
             };
 
             let win_size = window.inner_size();
@@ -283,10 +288,9 @@ impl Renderer {
         let dt = self.last_instant.elapsed().as_secs_f32();
         self.last_instant = Instant::now();
 
-        let mouse_pos = self.camera.pointer_to_pos(mouse_pos, self.viewport);
-
         // rotate surroundings of mouse
-        let surround_radius = 160.0;
+        let mouse_pos = self.camera.pointer_to_pos(mouse_pos, self.viewport);
+        let surround_radius = 320.0;
         let surround_area = Vec2::splat(surround_radius);
 
         let aw = self.area_width;
@@ -298,15 +302,29 @@ impl Renderer {
                 let i = (y * self.area_width + x) as usize;
 
                 if let Some(square) = self.rects.get_mut(i) {
-                    square.rotation += (dt * PI * 16.0 / surround_radius)
-                        * (surround_radius - Vec2::distance(square.position, mouse_pos)).max(0.0);
-                    self.vertices[i] = square.vertices();
+                    let distance = Vec2::distance(square.position, mouse_pos);
+                    let intensity = (surround_radius - distance).max(0.0) / surround_radius;
+
+                    square.rotation += (dt * PI) * 2.0 * intensity;
+                    self.vertices[i] = square.vertices(2.0 * intensity + 0.5);
                 }
             }
         }
 
         self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
+
         self.frame_count += 1;
+
+        // reset intensity
+        for y in y_beg..=y_end {
+            for x in x_beg..=x_end {
+                let i = (y * self.area_width + x) as usize;
+
+                if let Some(square) = self.rects.get_mut(i) {
+                    self.vertices[i] = square.vertices(0.5);
+                }
+            }
+        }
     }
 
     pub fn draw_with_clear_color(&mut self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
