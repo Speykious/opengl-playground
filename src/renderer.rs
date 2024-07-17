@@ -7,7 +7,7 @@ use std::{
 };
 
 use gl::types::{GLchar, GLenum, GLfloat, GLsizei, GLsizeiptr, GLuint};
-use glam::{vec2, Vec2, Vec4};
+use glam::{vec2, Mat4, Vec2, Vec4};
 use glutin::display::GlDisplay;
 use rand::Rng;
 use winit::window::Window;
@@ -32,12 +32,24 @@ struct Rect {
 }
 
 impl Rect {
-    fn random(rng: &mut impl Rng, i: u32) -> Self {
-        let width = (N_RECTS as f32).sqrt() as u32;
-        let hwidth = width as f32 * 0.5;
+    fn pos_from_idx(i: u32, area_width: u32) -> Vec2 {
+        Self::pos_from_grid_idx((i % area_width, i / area_width), area_width)
+    }
 
+    fn pos_from_grid_idx((x, y): (u32, u32), area_width: u32) -> Vec2 {
+        (vec2(x as f32, y as f32) - area_width as f32 * 0.5) * 16.0
+    }
+
+    fn closest_grid_idx_from_pos(pos: Vec2, area_width: u32) -> (u32, u32) {
+        let width = area_width as f32;
+
+        let pos = pos / 16.0 + width * 0.5;
+        (pos.x.round().max(0.0) as u32, pos.y.round().max(0.0) as u32)
+    }
+
+    fn random(rng: &mut impl Rng, i: u32, area_width: u32) -> Self {
         Self {
-            position: (vec2((i % width) as f32, (i / width) as f32) - hwidth) * 16.0,
+            position: Self::pos_from_idx(i, area_width),
             size: vec2(rng.gen_range(10.0..=20.0), rng.gen_range(10.0..=20.0)),
             rotation: rng.gen_range(0.0..TAU),
             border_radius: rng.gen_range(1.0..=5.0),
@@ -107,6 +119,8 @@ struct Vertex {
 
 pub struct Renderer {
     pub camera: Camera,
+    matrix: Mat4,
+    viewport: Vec2,
 
     round_rect_shader: GLuint,
     vao: GLuint,
@@ -119,6 +133,8 @@ pub struct Renderer {
     vertices: Vec<[Vertex; 4]>,
     indices: Vec<[u32; 6]>,
 
+    area_width: u32,
+
     start: Instant,
     last_instant: Instant,
     frame_count: u128,
@@ -126,17 +142,24 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
+        let area_width = (N_RECTS as f32).sqrt() as u32;
+
         let mut squares = Vec::with_capacity(N_RECTS);
         let mut vertices = Vec::with_capacity(N_RECTS);
         let mut indices = Vec::with_capacity(N_RECTS);
 
         let mut rng = rand::thread_rng();
         for i in 0..(N_RECTS as u32) {
-            let square = Rect::random(&mut rng, i);
+            let square = Rect::random(&mut rng, i, area_width);
             vertices.push(square.vertices());
             indices.push(square.indices(i));
             squares.push(square);
         }
+
+        let camera = Camera {
+            scale: Vec2::splat(window.scale_factor() as f32 * 1.8),
+            ..Default::default()
+        };
 
         unsafe {
             gl::load_with(|symbol| {
@@ -179,11 +202,6 @@ impl Renderer {
             let mut ssbo: u32 = 0;
             gl::GenBuffers(1, &mut ssbo);
             gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, ssbo);
-
-            let camera = Camera {
-                scale: Vec2::splat(window.scale_factor() as f32 * 1.8),
-                ..Default::default()
-            };
 
             let mut vbo: u32 = 0;
             gl::GenBuffers(1, &mut vbo);
@@ -232,8 +250,14 @@ impl Renderer {
                 gl::EnableVertexAttribArray(a_border_width  as GLuint);
             };
 
+            let win_size = window.inner_size();
+            let viewport = Vec2::new(win_size.width as f32, win_size.height as f32);
+            let matrix = camera.matrix(viewport);
+
             Self {
                 camera,
+                matrix,
+                viewport,
 
                 round_rect_shader,
                 vao,
@@ -246,6 +270,8 @@ impl Renderer {
                 vertices,
                 indices,
 
+                area_width,
+
                 start: Instant::now(),
                 last_instant: Instant::now(),
                 frame_count: 0,
@@ -253,13 +279,30 @@ impl Renderer {
         }
     }
 
-    pub fn draw(&mut self) {
+    pub fn draw(&mut self, mouse_pos: Vec2) {
         let dt = self.last_instant.elapsed().as_secs_f32();
         self.last_instant = Instant::now();
 
-        for (square, verts) in (self.rects.iter_mut()).zip(self.vertices.iter_mut()) {
-            square.rotation += dt * PI * 0.025;
-            *verts = square.vertices();
+        let mouse_pos = self.camera.pointer_to_pos(mouse_pos, self.viewport);
+
+        // rotate surroundings of mouse
+        let surround_radius = 160.0;
+        let surround_area = Vec2::splat(surround_radius);
+
+        let aw = self.area_width;
+        let (x_beg, y_beg) = Rect::closest_grid_idx_from_pos(mouse_pos - surround_area, aw);
+        let (x_end, y_end) = Rect::closest_grid_idx_from_pos(mouse_pos + surround_area, aw);
+
+        for y in y_beg..=y_end {
+            for x in x_beg..=x_end {
+                let i = (y * self.area_width + x) as usize;
+
+                if let Some(square) = self.rects.get_mut(i) {
+                    square.rotation += (dt * PI * 16.0 / surround_radius)
+                        * (surround_radius - Vec2::distance(square.position, mouse_pos)).max(0.0);
+                    self.vertices[i] = square.vertices();
+                }
+            }
         }
 
         self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
@@ -296,10 +339,16 @@ impl Renderer {
         unsafe {
             gl::Viewport(0, 0, width, height);
 
-            let matrix = self.camera.matrix(Vec2::new(width as f32, height as f32));
+            self.viewport = Vec2::new(width as f32, height as f32);
+            self.matrix = self.camera.matrix(self.viewport);
 
             gl::UseProgram(self.round_rect_shader);
-            gl::UniformMatrix4fv(self.u_mvp_square, 1, gl::FALSE, matrix.as_ref().as_ptr());
+            gl::UniformMatrix4fv(
+                self.u_mvp_square,
+                1,
+                gl::FALSE,
+                self.matrix.as_ref().as_ptr(),
+            );
         }
     }
 }

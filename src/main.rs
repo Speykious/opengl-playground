@@ -1,6 +1,6 @@
 use std::{num::NonZeroU32, rc::Rc};
 
-use glam::IVec2;
+use glam::{IVec2, Vec2};
 use glutin::{
     config::{Config, ConfigTemplateBuilder, GlConfig as _},
     context::{
@@ -50,6 +50,7 @@ struct App {
     state: Option<AppState>,
 
     viewport: IVec2,
+    mouse_pos: Vec2,
 }
 
 impl App {
@@ -84,6 +85,7 @@ impl App {
             state: None,
 
             viewport: IVec2::default(),
+            mouse_pos: Vec2::default(),
         }
     }
 }
@@ -210,8 +212,8 @@ impl ApplicationHandler for App {
                 if let Some(AppState {
                     gl_context,
                     gl_surface,
-                    window: _,
-                }) = self.state.as_ref()
+                    ..
+                }) = self.state.as_mut()
                 {
                     gl_surface.resize(
                         gl_context,
@@ -221,6 +223,10 @@ impl ApplicationHandler for App {
 
                     self.viewport = IVec2::new(size.width as i32, size.height as i32);
                 }
+            }
+
+            WindowEvent::CursorMoved { position, .. } => {
+                self.mouse_pos = Vec2::new(position.x as f32, position.y as f32);
             }
 
             WindowEvent::CloseRequested
@@ -233,11 +239,11 @@ impl ApplicationHandler for App {
                 ..
             } => event_loop.exit(),
 
-            event => {
-                if let Some((renderer, scene_ctrl)) = &mut self.renderer {
-                    scene_ctrl.interact(&event, &renderer.camera)
-                }
-            }
+            _ => {}
+        };
+
+        if let Some((renderer, scene_ctrl)) = &mut self.renderer {
+            scene_ctrl.interact(&event, &renderer.camera);
         }
     }
 
@@ -252,7 +258,7 @@ impl ApplicationHandler for App {
 
             scene_ctrl.update(&mut renderer.camera);
             renderer.resize(self.viewport.x, self.viewport.y);
-            renderer.draw();
+            renderer.draw(self.mouse_pos);
 
             window.request_redraw();
 
