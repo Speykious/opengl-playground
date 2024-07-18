@@ -14,14 +14,14 @@ use winit::window::Window;
 
 use crate::camera::Camera;
 
-const N_RECTS: usize = 100_000;
+const N_QUADS: usize = 100_000;
 
 const SRC_VERT_QUAD: &[u8] = include_bytes!("shaders/quad.vert");
 const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("shaders/round-rect.frag");
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
-struct Rect {
+struct Quad {
     pub position: Vec2,
     pub size: Vec2,
     pub rotation: f32,
@@ -31,7 +31,7 @@ struct Rect {
     pub stroke_color: u32,
 }
 
-impl Rect {
+impl Quad {
     fn pos_from_idx(i: u32, area_width: u32) -> Vec2 {
         Self::pos_from_grid_idx((i % area_width, i / area_width), area_width)
     }
@@ -105,8 +105,8 @@ impl Rect {
         })
     }
 
-    fn indices(&self, square_index: u32) -> [u32; 6] {
-        let i = square_index * 4;
+    fn indices(&self, quad_index: u32) -> [u32; 6] {
+        let i = quad_index * 4;
         [i, 1 + i, 2 + i, i, 2 + i, 3 + i]
     }
 }
@@ -128,14 +128,14 @@ pub struct Renderer {
     matrix: Mat4,
     viewport: Vec2,
 
-    round_rect_shader: GLuint,
+    round_quad_shader: GLuint,
     vao: GLuint,
     vbo: GLuint,
     ebo: GLuint,
 
-    u_mvp_square: i32,
+    u_mvp_quad: i32,
 
-    rects: Vec<Rect>,
+    quads: Vec<Quad>,
     vertices: Vec<[Vertex; 4]>,
     indices: Vec<[u32; 6]>,
 
@@ -148,18 +148,18 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
-        let area_width = (N_RECTS as f32).sqrt() as u32;
+        let area_width = (N_QUADS as f32).sqrt() as u32;
 
-        let mut squares = Vec::with_capacity(N_RECTS);
-        let mut vertices = Vec::with_capacity(N_RECTS);
-        let mut indices = Vec::with_capacity(N_RECTS);
+        let mut quads = Vec::with_capacity(N_QUADS);
+        let mut vertices = Vec::with_capacity(N_QUADS);
+        let mut indices = Vec::with_capacity(N_QUADS);
 
         let mut rng = rand::thread_rng();
-        for i in 0..(N_RECTS as u32) {
-            let square = Rect::random(&mut rng, i, area_width);
-            vertices.push(square.vertices(0.5));
-            indices.push(square.indices(i));
-            squares.push(square);
+        for i in 0..(N_QUADS as u32) {
+            let quad = Quad::random(&mut rng, i, area_width);
+            vertices.push(quad.vertices(0.5));
+            indices.push(quad.indices(i));
+            quads.push(quad);
         }
 
         let camera = Camera {
@@ -197,9 +197,9 @@ impl Renderer {
             gl::BlendEquation(gl::FUNC_ADD);
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
-            let round_rect_shader = create_shader_program(SRC_VERT_QUAD, SRC_FRAG_ROUND_RECT);
+            let round_quad_shader = create_shader_program(SRC_VERT_QUAD, SRC_FRAG_ROUND_RECT);
 
-            let u_mvp_square = gl::GetUniformLocation(round_rect_shader, c"u_mvp".as_ptr());
+            let u_mvp_quad = gl::GetUniformLocation(round_quad_shader, c"u_mvp".as_ptr());
 
             let mut vao: u32 = 0;
             gl::GenVertexArrays(1, &mut vao);
@@ -234,13 +234,13 @@ impl Renderer {
 
             #[rustfmt::skip]
             {
-                let a_position      = gl::GetAttribLocation(round_rect_shader, c"position"      .as_ptr()) as GLuint;
-                let a_size          = gl::GetAttribLocation(round_rect_shader, c"size"          .as_ptr()) as GLuint;
-                let a_fill_color    = gl::GetAttribLocation(round_rect_shader, c"fill_color"    .as_ptr()) as GLuint;
-                let a_stroke_color  = gl::GetAttribLocation(round_rect_shader, c"stroke_color"  .as_ptr()) as GLuint;
-                let a_border_radius = gl::GetAttribLocation(round_rect_shader, c"border_radius" .as_ptr()) as GLuint;
-                let a_border_width  = gl::GetAttribLocation(round_rect_shader, c"border_width"  .as_ptr()) as GLuint;
-                let a_intensity     = gl::GetAttribLocation(round_rect_shader, c"intensity"     .as_ptr()) as GLuint;
+                let a_position      = gl::GetAttribLocation(round_quad_shader, c"position"      .as_ptr()) as GLuint;
+                let a_size          = gl::GetAttribLocation(round_quad_shader, c"size"          .as_ptr()) as GLuint;
+                let a_fill_color    = gl::GetAttribLocation(round_quad_shader, c"fill_color"    .as_ptr()) as GLuint;
+                let a_stroke_color  = gl::GetAttribLocation(round_quad_shader, c"stroke_color"  .as_ptr()) as GLuint;
+                let a_border_radius = gl::GetAttribLocation(round_quad_shader, c"border_radius" .as_ptr()) as GLuint;
+                let a_border_width  = gl::GetAttribLocation(round_quad_shader, c"border_width"  .as_ptr()) as GLuint;
+                let a_intensity     = gl::GetAttribLocation(round_quad_shader, c"intensity"     .as_ptr()) as GLuint;
 
                 gl::VertexAttribPointer(a_position,      2, gl::FLOAT, gl::FALSE, size_vertex,   0             as _);
                 gl::VertexAttribPointer(a_size,          2, gl::FLOAT, gl::FALSE, size_vertex, ( 2 * size_f32) as _);
@@ -268,14 +268,14 @@ impl Renderer {
                 matrix,
                 viewport,
 
-                round_rect_shader,
+                round_quad_shader,
                 vao,
                 vbo,
                 ebo,
 
-                u_mvp_square,
+                u_mvp_quad,
 
-                rects: squares,
+                quads,
                 vertices,
                 indices,
 
@@ -298,19 +298,19 @@ impl Renderer {
         let surround_area = Vec2::splat(surround_radius);
 
         let aw = self.area_width;
-        let (x_beg, y_beg) = Rect::closest_grid_idx_from_pos(mouse_pos - surround_area, aw);
-        let (x_end, y_end) = Rect::closest_grid_idx_from_pos(mouse_pos + surround_area, aw);
+        let (x_beg, y_beg) = Quad::closest_grid_idx_from_pos(mouse_pos - surround_area, aw);
+        let (x_end, y_end) = Quad::closest_grid_idx_from_pos(mouse_pos + surround_area, aw);
 
         for y in y_beg..=y_end {
             for x in x_beg..=x_end {
                 let i = (y * self.area_width + x) as usize;
 
-                if let Some(square) = self.rects.get_mut(i) {
-                    let distance = Vec2::distance(square.position, mouse_pos);
+                if let Some(quad) = self.quads.get_mut(i) {
+                    let distance = Vec2::distance(quad.position, mouse_pos);
                     let intensity = (surround_radius - distance).max(0.0) / surround_radius;
 
-                    square.rotation += (dt * PI) * 2.0 * intensity;
-                    self.vertices[i] = square.vertices(2.0 * intensity + 0.5);
+                    quad.rotation += (dt * PI) * 2.0 * intensity;
+                    self.vertices[i] = quad.vertices(2.0 * intensity + 0.5);
                 }
             }
         }
@@ -325,8 +325,8 @@ impl Renderer {
             for x in x_beg..=x_end {
                 let i = (y * self.area_width + x) as usize;
 
-                if let Some(square) = self.rects.get_mut(i) {
-                    self.vertices[i] = square.vertices(0.5);
+                if let Some(quad) = self.quads.get_mut(i) {
+                    self.vertices[i] = quad.vertices(0.5);
                 }
             }
         }
@@ -364,7 +364,7 @@ impl Renderer {
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
-            gl::UseProgram(self.round_rect_shader);
+            gl::UseProgram(self.round_quad_shader);
             gl::DrawElements(
                 gl::TRIANGLES,
                 mem::size_of_val(self.indices.as_slice()) as GLsizei,
@@ -381,9 +381,9 @@ impl Renderer {
             self.viewport = Vec2::new(width as f32, height as f32);
             self.matrix = self.camera.matrix(self.viewport);
 
-            gl::UseProgram(self.round_rect_shader);
+            gl::UseProgram(self.round_quad_shader);
             gl::UniformMatrix4fv(
-                self.u_mvp_square,
+                self.u_mvp_quad,
                 1,
                 gl::FALSE,
                 self.matrix.as_ref().as_ptr(),
@@ -400,7 +400,7 @@ impl Drop for Renderer {
         println!("Average FPS:  {}", fps);
 
         unsafe {
-            gl::DeleteProgram(self.round_rect_shader);
+            gl::DeleteProgram(self.round_quad_shader);
             gl::DeleteBuffers(1, &self.vbo);
             gl::DeleteVertexArrays(1, &self.vao);
         }
