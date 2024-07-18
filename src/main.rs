@@ -11,7 +11,7 @@ use glutin::{
     surface::{GlSurface as _, Surface, SwapInterval, WindowSurface},
 };
 use glutin_winit::{DisplayBuilder, GlWindow as _};
-use renderer::{Renderer, RoundQuadsRenderer};
+use renderer::Renderer;
 use scene::SceneController;
 use winit::{
     application::ApplicationHandler,
@@ -36,27 +36,24 @@ fn main() {
             .with_theme(Some(Theme::Dark))
             .with_title("OpenGL Squares")
             .with_resizable(true),
-        Box::new(|gl_display, window| Box::new(RoundQuadsRenderer::new(gl_display, window))),
     );
 
     event_loop.run_app(&mut app).unwrap();
 }
 
 struct AppState {
+    gl_display: glutin::display::Display,
     gl_context: PossiblyCurrentContext,
     gl_surface: Surface<WindowSurface>,
     window: Rc<Window>,
 }
-
-pub type ProvideRendererFn = Box<dyn Fn(&glutin::display::Display, &Window) -> Box<dyn Renderer>>;
 
 struct App {
     win_attribs: WindowAttributes,
     template_builder: ConfigTemplateBuilder,
     display_builder: DisplayBuilder,
     not_current_gl_context: Option<NotCurrentContext>,
-    renderer: Option<(Box<dyn Renderer>, SceneController)>,
-    renderer_f: ProvideRendererFn,
+    renderer: Option<(Renderer, SceneController)>,
     state: Option<AppState>,
 
     viewport: IVec2,
@@ -64,7 +61,7 @@ struct App {
 }
 
 impl App {
-    fn new(win_attribs: WindowAttributes, renderer_f: ProvideRendererFn) -> Self {
+    fn new(win_attribs: WindowAttributes) -> Self {
         // The template will match only the configurations supporting rendering
         // to windows.
         //
@@ -86,7 +83,6 @@ impl App {
             display_builder,
             not_current_gl_context: None,
             renderer: None,
-            renderer_f,
             state: None,
 
             viewport: IVec2::default(),
@@ -178,7 +174,7 @@ impl ApplicationHandler for App {
         // buffers. It also performs function loading, which needs a current context on
         // WGL.
         self.renderer.get_or_insert_with(|| {
-            let renderer = (self.renderer_f)(&gl_display, window.as_ref());
+            let renderer = Renderer::new(&gl_display, window.as_ref());
             let scene_controller = SceneController::new(window.scale_factor() as f32, 0.5);
             (renderer, scene_controller)
         });
@@ -194,6 +190,7 @@ impl ApplicationHandler for App {
         }
 
         let prev_state = (self.state).replace(AppState {
+            gl_display,
             gl_context,
             gl_surface,
             window,
@@ -244,6 +241,23 @@ impl ApplicationHandler for App {
                 ..
             } => event_loop.exit(),
 
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        logical_key: Key::Named(named_key),
+                        ..
+                    },
+                ..
+            } => {
+                if let Some(AppState {
+                    gl_display, window, ..
+                }) = self.state.as_ref()
+                {
+                    let (renderer, _) = self.renderer.as_mut().unwrap();
+                    renderer.switch_scene(gl_display, window, named_key)
+                }
+            }
+
             _ => {}
         };
 
@@ -257,6 +271,7 @@ impl ApplicationHandler for App {
             gl_context,
             gl_surface,
             window,
+            ..
         }) = self.state.as_ref()
         {
             let (renderer, scene_ctrl) = self.renderer.as_mut().unwrap();

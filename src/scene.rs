@@ -11,6 +11,7 @@ pub struct SceneController {
     pub camera: Camera,
 
     // for camera position and mouse interactions
+    camera_pos: Vec2,
     mouse_pos: Vec2,
     mouse_pos_held: Vec2,
     mouse_state: ElementState,
@@ -36,6 +37,7 @@ impl SceneController {
 
         Self {
             camera,
+            camera_pos: Vec2::default(),
             mouse_pos: Vec2::default(),
             mouse_pos_held: Vec2::default(),
             mouse_state: ElementState::Released,
@@ -54,7 +56,8 @@ impl SceneController {
 
         // Mouse dragging
         if self.mouse_state == ElementState::Pressed {
-            self.camera.position += (self.mouse_pos - self.mouse_pos_held) / self.camera.scale;
+            self.camera.position =
+                self.camera_pos + (self.mouse_pos - self.mouse_pos_held) / self.camera.scale;
         }
 
         // Frame interval
@@ -71,6 +74,7 @@ impl SceneController {
                 self.mouse_state = *state;
                 if self.mouse_state == ElementState::Pressed {
                     self.mouse_pos_held = self.mouse_pos;
+                    self.camera_pos = self.camera.position;
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
