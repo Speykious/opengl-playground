@@ -31,6 +31,7 @@ impl Camera {
         self.real_size(viewport) / 2.0
     }
 
+    /// Convert screen pointer position to camera-corresponding position
     pub fn pointer_to_pos(&self, pointer: Vec2, viewport: Vec2) -> Vec2 {
         let origin = self.center_offset(viewport);
         let pos = self.position.extend(-(u16::MAX as f32 / 2.0));

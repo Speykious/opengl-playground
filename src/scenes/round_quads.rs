@@ -18,110 +18,6 @@ const N_QUADS: usize = 100_000;
 const SRC_VERT_QUAD: &[u8] = include_bytes!("shaders/quad.vert");
 const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("shaders/round-rect.frag");
 
-#[repr(C)]
-#[derive(Debug, Clone, Copy)]
-struct Quad {
-    pub position: Vec2,
-    pub size: Vec2,
-    pub rotation: f32,
-    pub border_radius: f32,
-    pub border_width: f32,
-    pub fill_color: u32,
-    pub stroke_color: u32,
-}
-
-impl Quad {
-    fn pos_from_idx(i: u32, area_width: u32) -> Vec2 {
-        Self::pos_from_grid_idx((i % area_width, i / area_width), area_width)
-    }
-
-    fn pos_from_grid_idx((x, y): (u32, u32), area_width: u32) -> Vec2 {
-        (vec2(x as f32, y as f32) - area_width as f32 * 0.5) * 16.0
-    }
-
-    fn closest_grid_idx_from_pos(pos: Vec2, area_width: u32) -> (u32, u32) {
-        let width = area_width as f32;
-        let upper_limit = width - 1.0;
-
-        let pos = pos / 16.0 + width * 0.5;
-        (
-            pos.x.round().clamp(0.0, upper_limit) as u32,
-            pos.y.round().clamp(0.0, upper_limit) as u32,
-        )
-    }
-
-    fn random(rng: &mut impl Rng, i: u32, area_width: u32) -> Self {
-        Self {
-            position: Self::pos_from_idx(i, area_width),
-            size: vec2(rng.gen_range(10.0..=20.0), rng.gen_range(10.0..=20.0)),
-            rotation: rng.gen_range(0.0..TAU),
-            border_radius: rng.gen_range(1.0..=5.0),
-            border_width: rng.gen_range(1.0..=5.0),
-            fill_color: u32::from_le_bytes([
-                rng.gen_range(128..=255),
-                rng.gen_range(128..=255),
-                rng.gen_range(128..=255),
-                rng.gen_range(128..=255),
-            ]),
-            stroke_color: u32::from_le_bytes([
-                rng.gen_range(24..=128),
-                rng.gen_range(24..=128),
-                rng.gen_range(24..=128),
-                rng.gen_range(128..=255),
-            ]),
-        }
-    }
-
-    fn vertices(self, intensity: f32) -> [Vertex; 4] {
-        let Self {
-            position,
-            size,
-            rotation,
-            border_radius,
-            border_width,
-            fill_color,
-            stroke_color,
-        } = self;
-
-        let r = vec2(rotation.cos(), rotation.sin());
-
-        #[rustfmt::skip]
-        let pos_dims = [
-            ((vec2(-0.5, -0.5) * size).rotate(r)) + position,
-            ((vec2(-0.5,  0.5) * size).rotate(r)) + position,
-            ((vec2( 0.5,  0.5) * size).rotate(r)) + position,
-            ((vec2( 0.5, -0.5) * size).rotate(r)) + position,
-        ];
-
-        pos_dims.map(|position| Vertex {
-            position,
-            size,
-            fill_color: Vec4::from_array(fill_color.to_le_bytes().map(|n| n as f32)) / 255.0,
-            stroke_color: Vec4::from_array(stroke_color.to_le_bytes().map(|n| n as f32)) / 255.0,
-            border_radius,
-            border_width,
-            intensity,
-        })
-    }
-
-    fn indices(&self, quad_index: u32) -> [u32; 6] {
-        let i = quad_index * 4;
-        [i, 1 + i, 2 + i, i, 2 + i, 3 + i]
-    }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, Default)]
-struct Vertex {
-    position: Vec2,
-    size: Vec2,
-    fill_color: Vec4,
-    stroke_color: Vec4,
-    border_radius: f32,
-    border_width: f32,
-    intensity: f32,
-}
-
 pub struct RoundQuadsScene {
     matrix: Mat4,
     viewport: Vec2,
@@ -357,4 +253,108 @@ impl Drop for RoundQuadsScene {
             gl::DeleteVertexArrays(1, &self.vao);
         }
     }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+struct Quad {
+    pub position: Vec2,
+    pub size: Vec2,
+    pub rotation: f32,
+    pub border_radius: f32,
+    pub border_width: f32,
+    pub fill_color: u32,
+    pub stroke_color: u32,
+}
+
+impl Quad {
+    fn pos_from_idx(i: u32, area_width: u32) -> Vec2 {
+        Self::pos_from_grid_idx((i % area_width, i / area_width), area_width)
+    }
+
+    fn pos_from_grid_idx((x, y): (u32, u32), area_width: u32) -> Vec2 {
+        (vec2(x as f32, y as f32) - area_width as f32 * 0.5) * 16.0
+    }
+
+    fn closest_grid_idx_from_pos(pos: Vec2, area_width: u32) -> (u32, u32) {
+        let width = area_width as f32;
+        let upper_limit = width - 1.0;
+
+        let pos = pos / 16.0 + width * 0.5;
+        (
+            pos.x.round().clamp(0.0, upper_limit) as u32,
+            pos.y.round().clamp(0.0, upper_limit) as u32,
+        )
+    }
+
+    fn random(rng: &mut impl Rng, i: u32, area_width: u32) -> Self {
+        Self {
+            position: Self::pos_from_idx(i, area_width),
+            size: vec2(rng.gen_range(10.0..=20.0), rng.gen_range(10.0..=20.0)),
+            rotation: rng.gen_range(0.0..TAU),
+            border_radius: rng.gen_range(1.0..=5.0),
+            border_width: rng.gen_range(1.0..=5.0),
+            fill_color: u32::from_le_bytes([
+                rng.gen_range(128..=255),
+                rng.gen_range(128..=255),
+                rng.gen_range(128..=255),
+                rng.gen_range(128..=255),
+            ]),
+            stroke_color: u32::from_le_bytes([
+                rng.gen_range(24..=128),
+                rng.gen_range(24..=128),
+                rng.gen_range(24..=128),
+                rng.gen_range(128..=255),
+            ]),
+        }
+    }
+
+    fn vertices(self, intensity: f32) -> [Vertex; 4] {
+        let Self {
+            position,
+            size,
+            rotation,
+            border_radius,
+            border_width,
+            fill_color,
+            stroke_color,
+        } = self;
+
+        let r = vec2(rotation.cos(), rotation.sin());
+
+        #[rustfmt::skip]
+        let pos_dims = [
+            ((vec2(-0.5, -0.5) * size).rotate(r)) + position,
+            ((vec2(-0.5,  0.5) * size).rotate(r)) + position,
+            ((vec2( 0.5,  0.5) * size).rotate(r)) + position,
+            ((vec2( 0.5, -0.5) * size).rotate(r)) + position,
+        ];
+
+        pos_dims.map(|position| Vertex {
+            position,
+            size,
+            fill_color: Vec4::from_array(fill_color.to_le_bytes().map(|n| n as f32)) / 255.0,
+            stroke_color: Vec4::from_array(stroke_color.to_le_bytes().map(|n| n as f32)) / 255.0,
+            border_radius,
+            border_width,
+            intensity,
+        })
+    }
+
+    fn indices(&self, quad_index: u32) -> [u32; 6] {
+        let i = quad_index * 4;
+        [i, 1 + i, 2 + i, i, 2 + i, 3 + i]
+    }
+}
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+struct Vertex {
+    position: Vec2,
+    size: Vec2,
+    fill_color: Vec4,
+    stroke_color: Vec4,
+    border_radius: f32,
+    border_width: f32,
+    intensity: f32,
 }
