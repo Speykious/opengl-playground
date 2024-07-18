@@ -42,9 +42,13 @@ impl Rect {
 
     fn closest_grid_idx_from_pos(pos: Vec2, area_width: u32) -> (u32, u32) {
         let width = area_width as f32;
+        let upper_limit = width - 1.0;
 
         let pos = pos / 16.0 + width * 0.5;
-        (pos.x.round().max(0.0) as u32, pos.y.round().max(0.0) as u32)
+        (
+            pos.x.round().clamp(0.0, upper_limit) as u32,
+            pos.y.round().clamp(0.0, upper_limit) as u32,
+        )
     }
 
     fn random(rng: &mut impl Rng, i: u32, area_width: u32) -> Self {
@@ -311,8 +315,9 @@ impl Renderer {
             }
         }
 
-        self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
+        self.update_vertices(x_beg, x_end, y_beg, y_end);
 
+        self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
         self.frame_count += 1;
 
         // reset intensity
@@ -325,20 +330,36 @@ impl Renderer {
                 }
             }
         }
+
+        // reset vertices (otherwise artifacts appear if the mouse moves too quickly)
+        self.update_vertices(x_beg, x_end, y_beg, y_end);
     }
 
-    pub fn draw_with_clear_color(&mut self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
+    fn update_vertices(&mut self, x_beg: u32, x_end: u32, y_beg: u32, y_end: u32) {
         unsafe {
             gl::BindVertexArray(self.vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
 
-            gl::BufferSubData(
-                gl::ARRAY_BUFFER,
-                0,
-                mem::size_of_val(self.vertices.as_slice()) as GLsizeiptr,
-                self.vertices.as_slice().as_ptr() as *const _,
-            );
+            for y in y_beg..=y_end {
+                let i_beg = (y * self.area_width + x_beg) as usize;
+                let i_end = (y * self.area_width + x_end) as usize;
+
+                gl::BufferSubData(
+                    gl::ARRAY_BUFFER,
+                    mem::size_of_val(&self.vertices[..i_beg]) as GLsizeiptr,
+                    mem::size_of_val(&self.vertices[i_beg..=i_end]) as GLsizeiptr,
+                    self.vertices[i_beg..=i_end].as_ptr() as *const _,
+                );
+            }
+        }
+    }
+
+    pub fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
+        unsafe {
+            gl::BindVertexArray(self.vao);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
 
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
