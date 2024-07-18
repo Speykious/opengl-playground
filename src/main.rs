@@ -11,7 +11,7 @@ use glutin::{
     surface::{GlSurface as _, Surface, SwapInterval, WindowSurface},
 };
 use glutin_winit::{DisplayBuilder, GlWindow as _};
-use renderer::Renderer;
+use renderer::{Renderer, RoundQuadsRenderer};
 use scene::SceneController;
 use winit::{
     application::ApplicationHandler,
@@ -30,7 +30,14 @@ fn main() {
     let event_loop = EventLoop::new().unwrap();
     event_loop.set_control_flow(ControlFlow::Poll);
 
-    let mut app = App::new();
+    let mut app = App::new(
+        WindowAttributes::default()
+            .with_active(true)
+            .with_theme(Some(Theme::Dark))
+            .with_title("OpenGL Squares")
+            .with_resizable(true),
+        Box::new(|gl_display, window| Box::new(RoundQuadsRenderer::new(gl_display, window))),
+    );
 
     event_loop.run_app(&mut app).unwrap();
 }
@@ -41,12 +48,15 @@ struct AppState {
     window: Rc<Window>,
 }
 
+pub type ProvideRendererFn = Box<dyn Fn(&glutin::display::Display, &Window) -> Box<dyn Renderer>>;
+
 struct App {
     win_attribs: WindowAttributes,
     template_builder: ConfigTemplateBuilder,
     display_builder: DisplayBuilder,
     not_current_gl_context: Option<NotCurrentContext>,
-    renderer: Option<(Renderer, SceneController)>,
+    renderer: Option<(Box<dyn Renderer>, SceneController)>,
+    renderer_f: ProvideRendererFn,
     state: Option<AppState>,
 
     viewport: IVec2,
@@ -54,13 +64,7 @@ struct App {
 }
 
 impl App {
-    fn new() -> Self {
-        let win_attribs = WindowAttributes::default()
-            .with_active(true)
-            .with_theme(Some(Theme::Dark))
-            .with_title("OpenGL Squares")
-            .with_resizable(true);
-
+    fn new(win_attribs: WindowAttributes, renderer_f: ProvideRendererFn) -> Self {
         // The template will match only the configurations supporting rendering
         // to windows.
         //
@@ -82,6 +86,7 @@ impl App {
             display_builder,
             not_current_gl_context: None,
             renderer: None,
+            renderer_f,
             state: None,
 
             viewport: IVec2::default(),
@@ -105,7 +110,7 @@ impl ApplicationHandler for App {
             }
         };
 
-        print!("Chosen config = ");
+        println!("Chosen OpenGL config:");
         debug_gl_config(&gl_config);
 
         let raw_window_handle = window
@@ -173,8 +178,8 @@ impl ApplicationHandler for App {
         // buffers. It also performs function loading, which needs a current context on
         // WGL.
         self.renderer.get_or_insert_with(|| {
-            let renderer = Renderer::new(&gl_display, window.as_ref());
-            let scene_controller = SceneController::new(&renderer.camera, 0.5);
+            let renderer = (self.renderer_f)(&gl_display, window.as_ref());
+            let scene_controller = SceneController::new(window.scale_factor() as f32, 0.5);
             (renderer, scene_controller)
         });
 
@@ -242,8 +247,8 @@ impl ApplicationHandler for App {
             _ => {}
         };
 
-        if let Some((renderer, scene_ctrl)) = &mut self.renderer {
-            scene_ctrl.interact(&event, &renderer.camera);
+        if let Some((_, scene_ctrl)) = &mut self.renderer {
+            scene_ctrl.interact(&event);
         }
     }
 
@@ -256,9 +261,9 @@ impl ApplicationHandler for App {
         {
             let (renderer, scene_ctrl) = self.renderer.as_mut().unwrap();
 
-            scene_ctrl.update(&mut renderer.camera);
-            renderer.resize(self.viewport.x, self.viewport.y);
-            renderer.draw(self.mouse_pos);
+            scene_ctrl.update();
+            renderer.resize(&scene_ctrl.camera, self.viewport.x, self.viewport.y);
+            renderer.draw(&scene_ctrl.camera, self.mouse_pos);
 
             window.request_redraw();
 
@@ -271,10 +276,10 @@ impl ApplicationHandler for App {
 // smooth.
 pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Config {
     configs
-        .map(|config| {
-            debug_gl_config(&config);
-            config
-        })
+        // .map(|config| {
+        //     debug_gl_config(&config);
+        //     config
+        // })
         .reduce(|accum, config| {
             if config.supports_transparency().unwrap_or(false)
                 && !accum.supports_transparency().unwrap_or(false)
@@ -288,7 +293,6 @@ pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Confi
 }
 
 fn debug_gl_config(gl_config: &glutin::config::Config) {
-    println!("OpenGL config:");
     println!(
         "  Color buffer type:     {:?}",
         gl_config.color_buffer_type()

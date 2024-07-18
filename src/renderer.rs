@@ -123,8 +123,12 @@ struct Vertex {
     intensity: f32,
 }
 
-pub struct Renderer {
-    pub camera: Camera,
+pub trait Renderer {
+    fn draw(&mut self, camera: &Camera, mouse_pos: Vec2);
+    fn resize(&mut self, camera: &Camera, width: i32, height: i32);
+}
+
+pub struct RoundQuadsRenderer {
     matrix: Mat4,
     viewport: Vec2,
 
@@ -146,7 +150,7 @@ pub struct Renderer {
     frame_count: u128,
 }
 
-impl Renderer {
+impl RoundQuadsRenderer {
     pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
         let area_width = (N_QUADS as f32).sqrt() as u32;
 
@@ -161,11 +165,6 @@ impl Renderer {
             indices.push(quad.indices(i));
             quads.push(quad);
         }
-
-        let camera = Camera {
-            scale: Vec2::splat(window.scale_factor() as f32),
-            ..Default::default()
-        };
 
         unsafe {
             gl::load_with(|symbol| {
@@ -261,11 +260,9 @@ impl Renderer {
 
             let win_size = window.inner_size();
             let viewport = Vec2::new(win_size.width as f32, win_size.height as f32);
-            let matrix = camera.matrix(viewport);
 
             Self {
-                camera,
-                matrix,
+                matrix: Mat4::default(),
                 viewport,
 
                 round_quad_shader,
@@ -288,12 +285,53 @@ impl Renderer {
         }
     }
 
-    pub fn draw(&mut self, mouse_pos: Vec2) {
+    fn update_vertices(&mut self, x_beg: u32, x_end: u32, y_beg: u32, y_end: u32) {
+        unsafe {
+            gl::BindVertexArray(self.vao);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
+
+            for y in y_beg..=y_end {
+                let i_beg = (y * self.area_width + x_beg) as usize;
+                let i_end = (y * self.area_width + x_end) as usize;
+
+                gl::BufferSubData(
+                    gl::ARRAY_BUFFER,
+                    mem::size_of_val(&self.vertices[..i_beg]) as GLsizeiptr,
+                    mem::size_of_val(&self.vertices[i_beg..=i_end]) as GLsizeiptr,
+                    self.vertices[i_beg..=i_end].as_ptr() as *const _,
+                );
+            }
+        }
+    }
+
+    fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
+        unsafe {
+            gl::BindVertexArray(self.vao);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
+
+            gl::ClearColor(r, g, b, a);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+
+            gl::UseProgram(self.round_quad_shader);
+            gl::DrawElements(
+                gl::TRIANGLES,
+                mem::size_of_val(self.indices.as_slice()) as GLsizei,
+                gl::UNSIGNED_INT,
+                std::ptr::null(),
+            );
+        }
+    }
+}
+
+impl Renderer for RoundQuadsRenderer {
+    fn draw(&mut self, camera: &Camera, mouse_pos: Vec2) {
         let dt = self.last_instant.elapsed().as_secs_f32();
         self.last_instant = Instant::now();
 
         // rotate surroundings of mouse
-        let mouse_pos = self.camera.pointer_to_pos(mouse_pos, self.viewport);
+        let mouse_pos = camera.pointer_to_pos(mouse_pos, self.viewport);
         let surround_radius = 320.0;
         let surround_area = Vec2::splat(surround_radius);
 
@@ -335,51 +373,12 @@ impl Renderer {
         self.update_vertices(x_beg, x_end, y_beg, y_end);
     }
 
-    fn update_vertices(&mut self, x_beg: u32, x_end: u32, y_beg: u32, y_end: u32) {
-        unsafe {
-            gl::BindVertexArray(self.vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
-
-            for y in y_beg..=y_end {
-                let i_beg = (y * self.area_width + x_beg) as usize;
-                let i_end = (y * self.area_width + x_end) as usize;
-
-                gl::BufferSubData(
-                    gl::ARRAY_BUFFER,
-                    mem::size_of_val(&self.vertices[..i_beg]) as GLsizeiptr,
-                    mem::size_of_val(&self.vertices[i_beg..=i_end]) as GLsizeiptr,
-                    self.vertices[i_beg..=i_end].as_ptr() as *const _,
-                );
-            }
-        }
-    }
-
-    pub fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
-        unsafe {
-            gl::BindVertexArray(self.vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
-
-            gl::ClearColor(r, g, b, a);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-
-            gl::UseProgram(self.round_quad_shader);
-            gl::DrawElements(
-                gl::TRIANGLES,
-                mem::size_of_val(self.indices.as_slice()) as GLsizei,
-                gl::UNSIGNED_INT,
-                std::ptr::null(),
-            );
-        }
-    }
-
-    pub fn resize(&mut self, width: i32, height: i32) {
+    fn resize(&mut self, camera: &Camera, width: i32, height: i32) {
         unsafe {
             gl::Viewport(0, 0, width, height);
 
             self.viewport = Vec2::new(width as f32, height as f32);
-            self.matrix = self.camera.matrix(self.viewport);
+            self.matrix = camera.matrix(self.viewport);
 
             gl::UseProgram(self.round_quad_shader);
             gl::UniformMatrix4fv(
@@ -392,7 +391,7 @@ impl Renderer {
     }
 }
 
-impl Drop for Renderer {
+impl Drop for RoundQuadsRenderer {
     fn drop(&mut self) {
         let elapsed = self.start.elapsed().as_secs_f64();
         let fps = self.frame_count as f64 / elapsed;

@@ -8,8 +8,9 @@ use glam::{vec2, Vec2};
 use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 
 pub struct SceneController {
+    pub camera: Camera,
+
     // for camera position and mouse interactions
-    camera_pos: Vec2,
     mouse_pos: Vec2,
     mouse_pos_held: Vec2,
     mouse_state: ElementState,
@@ -25,29 +26,35 @@ pub struct SceneController {
 }
 
 impl SceneController {
-    pub fn new(camera: &Camera, scroll_speed: f32) -> Self {
+    pub fn new(scale_factor: f32, scroll_speed: f32) -> Self {
+        let scale = Vec2::splat(scale_factor);
+
+        let camera = Camera {
+            scale,
+            ..Default::default()
+        };
+
         Self {
-            camera_pos: camera.position,
+            camera,
             mouse_pos: Vec2::default(),
             mouse_pos_held: Vec2::default(),
             mouse_state: ElementState::Released,
             scroll_speed,
-            hard_scale: camera.scale,
+            hard_scale: scale,
             start: Instant::now(),
             prev_elapsed: 0.0,
             current_elapsed: 0.0,
         }
     }
 
-    pub fn update(&mut self, camera: &mut Camera) {
+    pub fn update(&mut self) {
         // Smooth scrolling
         let time_delta = self.current_elapsed - self.prev_elapsed;
-        camera.scale = camera.scale + time_delta.powf(0.6) * (self.hard_scale - camera.scale);
+        self.camera.scale += time_delta.powf(0.6) * (self.hard_scale - self.camera.scale);
 
         // Mouse dragging
         if self.mouse_state == ElementState::Pressed {
-            camera.position =
-                self.camera_pos + (self.mouse_pos - self.mouse_pos_held) / camera.scale;
+            self.camera.position += (self.mouse_pos - self.mouse_pos_held) / self.camera.scale;
         }
 
         // Frame interval
@@ -55,7 +62,7 @@ impl SceneController {
         self.current_elapsed = self.start.elapsed().as_secs_f32();
     }
 
-    pub fn interact(&mut self, event: &WindowEvent, camera: &Camera) {
+    pub fn interact(&mut self, event: &WindowEvent) {
         match event {
             WindowEvent::CursorMoved { position, .. } => {
                 self.mouse_pos = vec2(position.x as f32, position.y as f32);
@@ -64,7 +71,6 @@ impl SceneController {
                 self.mouse_state = *state;
                 if self.mouse_state == ElementState::Pressed {
                     self.mouse_pos_held = self.mouse_pos;
-                    self.camera_pos = camera.position;
                 }
             }
             WindowEvent::MouseWheel { delta, .. } => {
