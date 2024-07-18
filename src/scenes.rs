@@ -5,19 +5,19 @@ use std::ffi::{c_void, CStr};
 
 use gl::types::{GLchar, GLenum, GLsizei, GLuint};
 use glam::Vec2;
-use round_quads::RoundQuadsRenderer;
+use round_quads::RoundQuadsScene;
 use winit::keyboard::NamedKey;
 use winit::window::Window;
 
 use crate::camera::Camera;
 
-pub enum Renderer {
-    RoundQuads(RoundQuadsRenderer),
+pub enum Scenes {
+    RoundQuads(RoundQuadsScene),
 }
 
-impl Renderer {
+impl Scenes {
     pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
-        Self::RoundQuads(RoundQuadsRenderer::new(gl_display, window))
+        Self::RoundQuads(RoundQuadsScene::new(gl_display, window))
     }
 
     pub fn switch_scene(
@@ -27,7 +27,7 @@ impl Renderer {
         keycode: NamedKey,
     ) {
         match keycode {
-            NamedKey::F1 => *self = Self::RoundQuads(RoundQuadsRenderer::new(gl_display, window)),
+            NamedKey::F1 => *self = Self::RoundQuads(RoundQuadsScene::new(gl_display, window)),
             NamedKey::F2 => (),
             _ => (),
         }

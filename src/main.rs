@@ -11,8 +11,8 @@ use glutin::{
     surface::{GlSurface as _, Surface, SwapInterval, WindowSurface},
 };
 use glutin_winit::{DisplayBuilder, GlWindow as _};
-use renderer::Renderer;
-use scene::SceneController;
+use scenes::Scenes;
+use scene_controller::SceneController;
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
@@ -23,8 +23,8 @@ use winit::{
 };
 
 pub mod camera;
-pub mod renderer;
-pub mod scene;
+pub mod scenes;
+pub mod scene_controller;
 
 fn main() {
     let event_loop = EventLoop::new().unwrap();
@@ -53,7 +53,7 @@ struct App {
     template_builder: ConfigTemplateBuilder,
     display_builder: DisplayBuilder,
     not_current_gl_context: Option<NotCurrentContext>,
-    renderer: Option<(Renderer, SceneController)>,
+    scenes: Option<(Scenes, SceneController)>,
     state: Option<AppState>,
 
     viewport: IVec2,
@@ -82,7 +82,7 @@ impl App {
             template_builder,
             display_builder,
             not_current_gl_context: None,
-            renderer: None,
+            scenes: None,
             state: None,
 
             viewport: IVec2::default(),
@@ -173,10 +173,10 @@ impl ApplicationHandler for App {
         // The context needs to be current for the Renderer to set up shaders and
         // buffers. It also performs function loading, which needs a current context on
         // WGL.
-        self.renderer.get_or_insert_with(|| {
-            let renderer = Renderer::new(&gl_display, window.as_ref());
+        self.scenes.get_or_insert_with(|| {
+            let scenes = Scenes::new(&gl_display, window.as_ref());
             let scene_controller = SceneController::new(window.scale_factor() as f32, 0.5);
-            (renderer, scene_controller)
+            (scenes, scene_controller)
         });
 
         let win_size = window.inner_size();
@@ -253,15 +253,15 @@ impl ApplicationHandler for App {
                     gl_display, window, ..
                 }) = self.state.as_ref()
                 {
-                    let (renderer, _) = self.renderer.as_mut().unwrap();
-                    renderer.switch_scene(gl_display, window, named_key)
+                    let (scenes, _) = self.scenes.as_mut().unwrap();
+                    scenes.switch_scene(gl_display, window, named_key)
                 }
             }
 
             _ => {}
         };
 
-        if let Some((_, scene_ctrl)) = &mut self.renderer {
+        if let Some((_, scene_ctrl)) = &mut self.scenes {
             scene_ctrl.interact(&event);
         }
     }
@@ -274,11 +274,11 @@ impl ApplicationHandler for App {
             ..
         }) = self.state.as_ref()
         {
-            let (renderer, scene_ctrl) = self.renderer.as_mut().unwrap();
+            let (scenes, scene_ctrl) = self.scenes.as_mut().unwrap();
 
             scene_ctrl.update();
-            renderer.resize(&scene_ctrl.camera, self.viewport.x, self.viewport.y);
-            renderer.draw(&scene_ctrl.camera, self.mouse_pos);
+            scenes.resize(&scene_ctrl.camera, self.viewport.x, self.viewport.y);
+            scenes.draw(&scene_ctrl.camera, self.mouse_pos);
 
             window.request_redraw();
 

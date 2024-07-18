@@ -124,7 +124,7 @@ struct Vertex {
     intensity: f32,
 }
 
-pub struct RoundQuadsRenderer {
+pub struct RoundQuadsScene {
     matrix: Mat4,
     viewport: Vec2,
 
@@ -146,7 +146,7 @@ pub struct RoundQuadsRenderer {
     frame_count: u128,
 }
 
-impl RoundQuadsRenderer {
+impl RoundQuadsScene {
     pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
         let area_width = (N_QUADS as f32).sqrt() as u32;
 
@@ -380,7 +380,7 @@ impl RoundQuadsRenderer {
     }
 }
 
-impl Drop for RoundQuadsRenderer {
+impl Drop for RoundQuadsScene {
     fn drop(&mut self) {
         let elapsed = self.start.elapsed().as_secs_f64();
         let fps = self.frame_count as f64 / elapsed;
