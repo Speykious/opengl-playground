@@ -1,9 +1,6 @@
 pub mod round_quads;
 
-use std::collections::HashSet;
-use std::ffi::{c_void, CStr};
-
-use gl::types::{GLchar, GLenum, GLsizei, GLuint};
+use gl::types::GLuint;
 use glam::Vec2;
 use round_quads::RoundQuadsScene;
 use winit::keyboard::NamedKey;
@@ -16,18 +13,13 @@ pub enum Scenes {
 }
 
 impl Scenes {
-    pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
-        Self::RoundQuads(RoundQuadsScene::new(gl_display, window))
+    pub fn new(window: &Window) -> Self {
+        Self::RoundQuads(RoundQuadsScene::new(window))
     }
 
-    pub fn switch_scene(
-        &mut self,
-        gl_display: &glutin::display::Display,
-        window: &Window,
-        keycode: NamedKey,
-    ) {
+    pub fn switch_scene(&mut self, window: &Window, keycode: NamedKey) {
         match keycode {
-            NamedKey::F1 => *self = Self::RoundQuads(RoundQuadsScene::new(gl_display, window)),
+            NamedKey::F1 => *self = Self::RoundQuads(RoundQuadsScene::new(window)),
             NamedKey::F2 => (),
             _ => (),
         }
@@ -117,56 +109,4 @@ unsafe fn verify_program(shader: GLuint) {
             eprintln!("PROGRAM LINK ERROR: {log}");
         }
     }
-}
-
-fn get_gl_string(variant: GLenum) -> Option<&'static CStr> {
-    unsafe {
-        let s = gl::GetString(variant);
-        (!s.is_null()).then(|| CStr::from_ptr(s.cast()))
-    }
-}
-
-unsafe fn get_opengl_extensions() -> HashSet<String> {
-    let mut num_extensions = 0;
-    gl::GetIntegerv(gl::NUM_EXTENSIONS, &mut num_extensions);
-
-    (0..num_extensions)
-        .map(|i| {
-            let extension_name = gl::GetStringi(gl::EXTENSIONS, i as u32) as *const _;
-            CStr::from_ptr(extension_name).to_string_lossy().to_string()
-        })
-        .collect()
-}
-
-extern "system" fn debug_message_callback(
-    _src: GLenum,
-    ty: GLenum,
-    _id: GLuint,
-    sevr: GLenum,
-    _len: GLsizei,
-    msg: *const GLchar,
-    _user_param: *mut c_void,
-) {
-    let ty = match ty {
-        gl::DEBUG_TYPE_ERROR => "Error: ",
-        gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => "Deprecated Behavior: ",
-        gl::DEBUG_TYPE_MARKER => "Marker: ",
-        gl::DEBUG_TYPE_OTHER => "",
-        gl::DEBUG_TYPE_POP_GROUP => "Pop Group: ",
-        gl::DEBUG_TYPE_PORTABILITY => "Portability: ",
-        gl::DEBUG_TYPE_PUSH_GROUP => "Push Group: ",
-        gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => "Undefined Behavior: ",
-        gl::DEBUG_TYPE_PERFORMANCE => "Performance: ",
-        ty => unreachable!("unknown debug type {ty}"),
-    };
-
-    let msg = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
-
-    match sevr {
-        gl::DEBUG_SEVERITY_NOTIFICATION => println!("[opengl debug] {ty}{msg}"),
-        gl::DEBUG_SEVERITY_LOW => println!("[opengl  info] {ty}{msg}"),
-        gl::DEBUG_SEVERITY_MEDIUM => println!("[opengl  warn] {ty}{msg}"),
-        gl::DEBUG_SEVERITY_HIGH => println!("[opengl error] {ty}{msg}"),
-        sevr => unreachable!("unknown debug severity {sevr}"),
-    };
 }

@@ -1,19 +1,17 @@
 use std::{
     f32::consts::{PI, TAU},
-    ffi::CString,
     mem,
     time::Instant,
 };
 
 use gl::types::{GLfloat, GLsizei, GLsizeiptr, GLuint};
 use glam::{vec2, Mat4, Vec2, Vec4};
-use glutin::display::GlDisplay;
 use rand::Rng;
 use winit::window::Window;
 
 use crate::camera::Camera;
 
-use super::{create_shader_program, debug_message_callback, get_gl_string, get_opengl_extensions};
+use super::create_shader_program;
 
 const N_QUADS: usize = 100_000;
 
@@ -141,13 +139,11 @@ pub struct RoundQuadsScene {
 
     area_width: u32,
 
-    start: Instant,
     last_instant: Instant,
-    frame_count: u128,
 }
 
 impl RoundQuadsScene {
-    pub fn new(gl_display: &glutin::display::Display, window: &Window) -> Self {
+    pub fn new(window: &Window) -> Self {
         let area_width = (N_QUADS as f32).sqrt() as u32;
 
         let mut quads = Vec::with_capacity(N_QUADS);
@@ -163,30 +159,6 @@ impl RoundQuadsScene {
         }
 
         unsafe {
-            gl::load_with(|symbol| {
-                let symbol = CString::new(symbol).unwrap();
-                gl_display.get_proc_address(symbol.as_c_str()).cast()
-            });
-
-            if let Some(renderer) = get_gl_string(gl::RENDERER) {
-                println!("Running on {}", renderer.to_string_lossy());
-            }
-            if let Some(version) = get_gl_string(gl::VERSION) {
-                println!("OpenGL Version {}", version.to_string_lossy());
-            }
-            if let Some(shaders_version) = get_gl_string(gl::SHADING_LANGUAGE_VERSION) {
-                println!("Shaders version on {}", shaders_version.to_string_lossy());
-            }
-
-            // Check for "GL_KHR_debug" support (not present on Apple *OS).
-            let extensions = get_opengl_extensions();
-
-            if extensions.contains("GL_KHR_debug") {
-                println!("Debug extension supported!\n");
-                gl::DebugMessageCallback(Some(debug_message_callback), std::ptr::null());
-                gl::Enable(gl::DEBUG_OUTPUT);
-            }
-
             // Normal blending
             gl::Enable(gl::BLEND);
             gl::BlendEquation(gl::FUNC_ADD);
@@ -274,9 +246,7 @@ impl RoundQuadsScene {
 
                 area_width,
 
-                start: Instant::now(),
                 last_instant: Instant::now(),
-                frame_count: 0,
             }
         }
     }
@@ -311,7 +281,6 @@ impl RoundQuadsScene {
         self.update_vertices(x_beg, x_end, y_beg, y_end);
 
         self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
-        self.frame_count += 1;
 
         // reset intensity
         for y in y_beg..=y_end {
@@ -382,11 +351,6 @@ impl RoundQuadsScene {
 
 impl Drop for RoundQuadsScene {
     fn drop(&mut self) {
-        let elapsed = self.start.elapsed().as_secs_f64();
-        let fps = self.frame_count as f64 / elapsed;
-        println!("Total frames: {}", self.frame_count);
-        println!("Average FPS:  {}", fps);
-
         unsafe {
             gl::DeleteProgram(self.round_quad_shader);
             gl::DeleteBuffers(1, &self.vbo);

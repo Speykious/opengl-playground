@@ -1,5 +1,11 @@
-use std::{num::NonZeroU32, rc::Rc};
+use std::{
+    collections::HashSet,
+    ffi::{c_void, CStr, CString},
+    num::NonZeroU32,
+    rc::Rc,
+};
 
+use gl::types::{GLchar, GLenum, GLsizei, GLuint};
 use glam::{IVec2, Vec2};
 use glutin::{
     config::{Config, ConfigTemplateBuilder, GlConfig as _},
@@ -11,8 +17,8 @@ use glutin::{
     surface::{GlSurface as _, Surface, SwapInterval, WindowSurface},
 };
 use glutin_winit::{DisplayBuilder, GlWindow as _};
-use scenes::Scenes;
 use scene_controller::SceneController;
+use scenes::Scenes;
 use winit::{
     application::ApplicationHandler,
     event::{KeyEvent, WindowEvent},
@@ -23,8 +29,8 @@ use winit::{
 };
 
 pub mod camera;
-pub mod scenes;
 pub mod scene_controller;
+pub mod scenes;
 
 fn main() {
     let event_loop = EventLoop::new().unwrap();
@@ -42,7 +48,6 @@ fn main() {
 }
 
 struct AppState {
-    gl_display: glutin::display::Display,
     gl_context: PossiblyCurrentContext,
     gl_surface: Surface<WindowSurface>,
     window: Rc<Window>,
@@ -170,11 +175,40 @@ impl ApplicationHandler for App {
             .make_current(&gl_surface)
             .unwrap();
 
+        // Load OpenGL functions.
+        gl::load_with(|symbol| {
+            let symbol = CString::new(symbol).unwrap();
+            gl_display.get_proc_address(symbol.as_c_str()).cast()
+        });
+
+        // Print some OpenGL constants
+        unsafe {
+            if let Some(renderer) = get_gl_string(gl::RENDERER) {
+                println!("Renderer:    {}", renderer.to_string_lossy());
+            }
+            if let Some(version) = get_gl_string(gl::VERSION) {
+                println!("OpenGL ver:  {}", version.to_string_lossy());
+            }
+            if let Some(shaders_version) = get_gl_string(gl::SHADING_LANGUAGE_VERSION) {
+                println!("Shaders ver: {}", shaders_version.to_string_lossy());
+            }
+
+            // Check for "GL_KHR_debug" support (not present on Apple *OS).
+            let extensions = get_opengl_extensions();
+
+            if extensions.contains("GL_KHR_debug") {
+                println!("Debug ext:   supported\n");
+                gl::DebugMessageCallback(Some(debug_message_callback), std::ptr::null());
+                gl::Enable(gl::DEBUG_OUTPUT);
+            } else {
+                println!("Debug ext:   unsupported\n");
+            }
+        }
+
         // The context needs to be current for the Renderer to set up shaders and
-        // buffers. It also performs function loading, which needs a current context on
-        // WGL.
+        // buffers.
         self.scenes.get_or_insert_with(|| {
-            let scenes = Scenes::new(&gl_display, window.as_ref());
+            let scenes = Scenes::new(window.as_ref());
             let scene_controller = SceneController::new(window.scale_factor() as f32, 0.5);
             (scenes, scene_controller)
         });
@@ -190,7 +224,6 @@ impl ApplicationHandler for App {
         }
 
         let prev_state = (self.state).replace(AppState {
-            gl_display,
             gl_context,
             gl_surface,
             window,
@@ -249,12 +282,9 @@ impl ApplicationHandler for App {
                     },
                 ..
             } => {
-                if let Some(AppState {
-                    gl_display, window, ..
-                }) = self.state.as_ref()
-                {
+                if let Some(AppState { window, .. }) = self.state.as_ref() {
                     let (scenes, _) = self.scenes.as_mut().unwrap();
-                    scenes.switch_scene(gl_display, window, named_key)
+                    scenes.switch_scene(window, named_key)
                 }
             }
 
@@ -332,4 +362,54 @@ fn debug_gl_config(gl_config: &glutin::config::Config) {
     );
     println!("  API:                   {:?}", gl_config.api());
     println!();
+}
+
+unsafe fn get_gl_string(variant: GLenum) -> Option<&'static CStr> {
+    let s = gl::GetString(variant);
+    (!s.is_null()).then(|| CStr::from_ptr(s.cast()))
+}
+
+unsafe fn get_opengl_extensions() -> HashSet<String> {
+    let mut num_extensions = 0;
+    gl::GetIntegerv(gl::NUM_EXTENSIONS, &mut num_extensions);
+
+    (0..num_extensions)
+        .map(|i| {
+            let extension_name = gl::GetStringi(gl::EXTENSIONS, i as u32) as *const _;
+            CStr::from_ptr(extension_name).to_string_lossy().to_string()
+        })
+        .collect()
+}
+
+extern "system" fn debug_message_callback(
+    _src: GLenum,
+    ty: GLenum,
+    _id: GLuint,
+    sevr: GLenum,
+    _len: GLsizei,
+    msg: *const GLchar,
+    _user_param: *mut c_void,
+) {
+    let ty = match ty {
+        gl::DEBUG_TYPE_ERROR => "Error: ",
+        gl::DEBUG_TYPE_DEPRECATED_BEHAVIOR => "Deprecated Behavior: ",
+        gl::DEBUG_TYPE_MARKER => "Marker: ",
+        gl::DEBUG_TYPE_OTHER => "",
+        gl::DEBUG_TYPE_POP_GROUP => "Pop Group: ",
+        gl::DEBUG_TYPE_PORTABILITY => "Portability: ",
+        gl::DEBUG_TYPE_PUSH_GROUP => "Push Group: ",
+        gl::DEBUG_TYPE_UNDEFINED_BEHAVIOR => "Undefined Behavior: ",
+        gl::DEBUG_TYPE_PERFORMANCE => "Performance: ",
+        ty => unreachable!("unknown debug type {ty}"),
+    };
+
+    let msg = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
+
+    match sevr {
+        gl::DEBUG_SEVERITY_NOTIFICATION => println!("[opengl debug] {ty}{msg}"),
+        gl::DEBUG_SEVERITY_LOW => println!("[opengl  info] {ty}{msg}"),
+        gl::DEBUG_SEVERITY_MEDIUM => println!("[opengl  warn] {ty}{msg}"),
+        gl::DEBUG_SEVERITY_HIGH => println!("[opengl error] {ty}{msg}"),
+        sevr => unreachable!("unknown debug severity {sevr}"),
+    };
 }
