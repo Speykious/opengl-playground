@@ -1,5 +1,7 @@
+pub mod blurring;
 pub mod round_quads;
 
+use blurring::BlurringScene;
 use gl::types::GLuint;
 use glam::Vec2;
 use round_quads::RoundQuadsScene;
@@ -9,6 +11,7 @@ use winit::window::Window;
 use crate::camera::Camera;
 
 pub enum Scenes {
+    Blurring(BlurringScene),
     RoundQuads(RoundQuadsScene),
 }
 
@@ -20,20 +23,22 @@ impl Scenes {
     pub fn switch_scene(&mut self, window: &Window, keycode: NamedKey) {
         match keycode {
             NamedKey::F1 => *self = Self::RoundQuads(RoundQuadsScene::new(window)),
-            NamedKey::F2 => (),
+            NamedKey::F2 => *self = Self::Blurring(BlurringScene::new(window)),
             _ => (),
         }
     }
 
     pub fn draw(&mut self, camera: &Camera, mouse_pos: Vec2) {
         match self {
-            Self::RoundQuads(r) => r.draw(camera, mouse_pos),
+            Self::RoundQuads(scene) => scene.draw(camera, mouse_pos),
+            Self::Blurring(scene) => scene.draw(camera, mouse_pos),
         }
     }
 
     pub fn resize(&mut self, camera: &Camera, width: i32, height: i32) {
         match self {
-            Self::RoundQuads(r) => r.resize(camera, width, height),
+            Self::RoundQuads(scene) => scene.resize(camera, width, height),
+            Self::Blurring(scene) => scene.resize(camera, width, height),
         }
     }
 }

@@ -4,21 +4,24 @@ use std::{
     time::Instant,
 };
 
-use gl::types::{GLfloat, GLsizei, GLsizeiptr, GLuint};
+use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use glam::{vec2, Mat4, Vec2, Vec4};
 use rand::Rng;
-use winit::window::Window;
+use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::camera::Camera;
 
 use super::create_shader_program;
 
-const N_QUADS: usize = 100_000;
+const N_QUADS: usize = 100;
 
 const SRC_VERT_QUAD: &[u8] = include_bytes!("shaders/quad.vert");
 const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("shaders/round-rect.frag");
 
-pub struct RoundQuadsScene {
+const SRC_VERT_SCREEN: &[u8] = include_bytes!("shaders/screen.vert");
+const SRC_FRAG_SCREEN: &[u8] = include_bytes!("shaders/screen.frag");
+
+pub struct BlurringScene {
     matrix: Mat4,
     viewport: Vec2,
 
@@ -26,6 +29,12 @@ pub struct RoundQuadsScene {
     vao: GLuint,
     vbo: GLuint,
     ebo: GLuint,
+
+    fbo: GLuint,
+    fb_texture: GLuint,
+    screen_shader: GLuint,
+    screen_vao: GLuint,
+    screen_vbo: GLuint,
 
     u_mvp_quad: i32,
 
@@ -38,8 +47,11 @@ pub struct RoundQuadsScene {
     last_instant: Instant,
 }
 
-impl RoundQuadsScene {
+impl BlurringScene {
     pub fn new(window: &Window) -> Self {
+        let PhysicalSize { width, height } = window.inner_size();
+        let viewport = Vec2::new(width as f32, height as f32);
+
         let area_width = (N_QUADS as f32).sqrt() as u32;
 
         let mut quads = Vec::with_capacity(N_QUADS);
@@ -60,19 +72,15 @@ impl RoundQuadsScene {
             gl::BlendEquation(gl::FUNC_ADD);
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
+            // quads shader and vertices
             let round_quad_shader = create_shader_program(SRC_VERT_QUAD, SRC_FRAG_ROUND_RECT);
-
             let u_mvp_quad = gl::GetUniformLocation(round_quad_shader, c"u_mvp".as_ptr());
 
-            let mut vao: u32 = 0;
+            let mut vao: GLuint = 0;
             gl::GenVertexArrays(1, &mut vao);
             gl::BindVertexArray(vao);
 
-            let mut ssbo: u32 = 0;
-            gl::GenBuffers(1, &mut ssbo);
-            gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, ssbo);
-
-            let mut vbo: u32 = 0;
+            let mut vbo: GLuint = 0;
             gl::GenBuffers(1, &mut vbo);
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
             gl::BufferData(
@@ -82,7 +90,7 @@ impl RoundQuadsScene {
                 gl::DYNAMIC_DRAW,
             );
 
-            let mut ebo: u32 = 0;
+            let mut ebo: GLuint = 0;
             gl::GenBuffers(1, &mut ebo);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
             gl::BufferData(
@@ -122,8 +130,58 @@ impl RoundQuadsScene {
                 gl::EnableVertexAttribArray(a_intensity     as GLuint);
             };
 
-            let win_size = window.inner_size();
-            let viewport = Vec2::new(win_size.width as f32, win_size.height as f32);
+            // framebuffer and its texture
+            let mut fbo: GLuint = 0;
+            gl::GenFramebuffers(1, &mut fbo);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
+
+            let mut fb_texture: GLuint = 0;
+            gl::GenTextures(1, &mut fb_texture);
+            gl::BindTexture(gl::TEXTURE_2D, fb_texture);
+            gl::TexImage2D(
+                gl::TEXTURE_2D,
+                0,
+                gl::RGB as GLint,
+                width as GLsizei,
+                height as GLsizei,
+                0,
+                gl::RGB,
+                gl::UNSIGNED_BYTE,
+                std::ptr::null(),
+            );
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as GLint);
+            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
+
+            gl::FramebufferTexture2D(
+                gl::FRAMEBUFFER,
+                gl::COLOR_ATTACHMENT0,
+                gl::TEXTURE_2D,
+                fb_texture,
+                0,
+            );
+
+            if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
+                eprintln!("framebuffer not complete");
+            }
+
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+
+            // screen shader and vertices
+            let screen_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_SCREEN);
+
+            let mut screen_vao: GLuint = 0;
+            gl::GenVertexArrays(1, &mut screen_vao);
+            gl::BindVertexArray(screen_vao);
+
+            let mut screen_vbo: GLuint = 0;
+            gl::GenBuffers(1, &mut screen_vbo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, screen_vbo);
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
+                SCREEN_VERTICES.as_ptr() as *const _,
+                gl::STATIC_DRAW,
+            );
 
             Self {
                 matrix: Mat4::default(),
@@ -133,6 +191,12 @@ impl RoundQuadsScene {
                 vao,
                 vbo,
                 ebo,
+
+                fbo,
+                fb_texture,
+                screen_shader,
+                screen_vao,
+                screen_vbo,
 
                 u_mvp_quad,
 
@@ -176,7 +240,7 @@ impl RoundQuadsScene {
 
         self.update_vertices(x_beg, x_end, y_beg, y_end);
 
-        self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
+        self.draw_with_clear_color(0.0, 0.2, 0.15, 0.5);
 
         // reset intensity
         for y in y_beg..=y_end {
@@ -215,22 +279,37 @@ impl RoundQuadsScene {
 
     fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
         unsafe {
-            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            // draw to framebuffer
+            gl::BindFramebuffer(gl::FRAMEBUFFER, self.fbo);
+
+            gl::ClearColor(r, g, b, a);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            gl::UseProgram(self.round_quad_shader);
 
             gl::BindVertexArray(self.vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
 
-            gl::ClearColor(r, g, b, a);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-
-            gl::UseProgram(self.round_quad_shader);
             gl::DrawElements(
                 gl::TRIANGLES,
                 mem::size_of_val(self.indices.as_slice()) as GLsizei,
                 gl::UNSIGNED_INT,
                 std::ptr::null(),
             );
+
+            // draw framebuffer to screen
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+
+            gl::ClearColor(r, g, b, a);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            gl::UseProgram(self.screen_shader);
+
+            gl::BindVertexArray(self.screen_vao);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.screen_vbo);
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+
+            gl::BindTexture(gl::TEXTURE_2D, self.fb_texture);
+            gl::DrawArrays(gl::TRIANGLES, 0, 6);
         }
     }
 
@@ -247,7 +326,7 @@ impl RoundQuadsScene {
     }
 }
 
-impl Drop for RoundQuadsScene {
+impl Drop for BlurringScene {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteProgram(self.round_quad_shader);
@@ -275,14 +354,14 @@ impl Quad {
     }
 
     fn pos_from_grid_idx((x, y): (u32, u32), area_width: u32) -> Vec2 {
-        (vec2(x as f32, y as f32) - area_width as f32 * 0.5) * 16.0
+        (vec2(x as f32, y as f32) - area_width as f32 * 0.5) * 32.0
     }
 
     fn closest_grid_idx_from_pos(pos: Vec2, area_width: u32) -> (u32, u32) {
         let width = area_width as f32;
         let upper_limit = width - 1.0;
 
-        let pos = pos / 16.0 + width * 0.5;
+        let pos = pos / 32.0 + width * 0.5;
         (
             pos.x.round().clamp(0.0, upper_limit) as u32,
             pos.y.round().clamp(0.0, upper_limit) as u32,
@@ -292,7 +371,7 @@ impl Quad {
     fn random(rng: &mut impl Rng, i: u32, area_width: u32) -> Self {
         Self {
             position: Self::pos_from_idx(i, area_width),
-            size: vec2(rng.gen_range(10.0..=20.0), rng.gen_range(10.0..=20.0)),
+            size: vec2(rng.gen_range(20.0..=40.0), rng.gen_range(20.0..=40.0)),
             rotation: rng.gen_range(0.0..TAU),
             border_radius: rng.gen_range(1.0..=5.0),
             border_width: rng.gen_range(1.0..=5.0),
@@ -360,3 +439,27 @@ struct Vertex {
     border_width: f32,
     intensity: f32,
 }
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+struct ScreenVertex {
+    position: Vec2,
+    uv: Vec2,
+}
+
+impl ScreenVertex {
+    const fn new(position: Vec2, uv: Vec2) -> Self {
+        Self { position, uv }
+    }
+}
+
+#[rustfmt::skip]
+const SCREEN_VERTICES: &[ScreenVertex] = &[
+                        // position       // uv
+    ScreenVertex::new(vec2(-1.0,  1.0), vec2(0.0, 1.0)),
+    ScreenVertex::new(vec2(-1.0, -1.0), vec2(0.0, 0.0)),
+    ScreenVertex::new(vec2( 1.0, -1.0), vec2(1.0, 0.0)),
+    ScreenVertex::new(vec2(-1.0,  1.0), vec2(0.0, 1.0)),
+    ScreenVertex::new(vec2( 1.0, -1.0), vec2(1.0, 0.0)),
+    ScreenVertex::new(vec2( 1.0,  1.0), vec2(1.0, 1.0)),
+];
