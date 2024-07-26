@@ -15,14 +15,14 @@ use super::create_shader_program;
 
 const N_QUADS: usize = 100_000;
 
-const SRC_VERT_QUAD: &[u8] = include_bytes!("shaders/quad.vert");
+const SRC_VERT_ROUND_RECT: &[u8] = include_bytes!("shaders/round-rect.vert");
 const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("shaders/round-rect.frag");
 
 pub struct RoundQuadsScene {
     matrix: Mat4,
     viewport: Vec2,
 
-    round_quad_shader: GLuint,
+    round_rect_shader: GLuint,
     vao: GLuint,
     vbo: GLuint,
     ebo: GLuint,
@@ -60,9 +60,9 @@ impl RoundQuadsScene {
             gl::BlendEquation(gl::FUNC_ADD);
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
-            let round_quad_shader = create_shader_program(SRC_VERT_QUAD, SRC_FRAG_ROUND_RECT);
+            let round_rect_shader = create_shader_program(SRC_VERT_ROUND_RECT, SRC_FRAG_ROUND_RECT);
 
-            let u_mvp_quad = gl::GetUniformLocation(round_quad_shader, c"u_mvp".as_ptr());
+            let u_mvp_quad = gl::GetUniformLocation(round_rect_shader, c"u_mvp".as_ptr());
 
             let mut vao: u32 = 0;
             gl::GenVertexArrays(1, &mut vao);
@@ -97,13 +97,13 @@ impl RoundQuadsScene {
 
             #[rustfmt::skip]
             {
-                let a_position      = gl::GetAttribLocation(round_quad_shader, c"position"      .as_ptr()) as GLuint;
-                let a_size          = gl::GetAttribLocation(round_quad_shader, c"size"          .as_ptr()) as GLuint;
-                let a_fill_color    = gl::GetAttribLocation(round_quad_shader, c"fill_color"    .as_ptr()) as GLuint;
-                let a_stroke_color  = gl::GetAttribLocation(round_quad_shader, c"stroke_color"  .as_ptr()) as GLuint;
-                let a_border_radius = gl::GetAttribLocation(round_quad_shader, c"border_radius" .as_ptr()) as GLuint;
-                let a_border_width  = gl::GetAttribLocation(round_quad_shader, c"border_width"  .as_ptr()) as GLuint;
-                let a_intensity     = gl::GetAttribLocation(round_quad_shader, c"intensity"     .as_ptr()) as GLuint;
+                let a_position      = gl::GetAttribLocation(round_rect_shader, c"position"      .as_ptr()) as GLuint;
+                let a_size          = gl::GetAttribLocation(round_rect_shader, c"size"          .as_ptr()) as GLuint;
+                let a_fill_color    = gl::GetAttribLocation(round_rect_shader, c"fill_color"    .as_ptr()) as GLuint;
+                let a_stroke_color  = gl::GetAttribLocation(round_rect_shader, c"stroke_color"  .as_ptr()) as GLuint;
+                let a_border_radius = gl::GetAttribLocation(round_rect_shader, c"border_radius" .as_ptr()) as GLuint;
+                let a_border_width  = gl::GetAttribLocation(round_rect_shader, c"border_width"  .as_ptr()) as GLuint;
+                let a_intensity     = gl::GetAttribLocation(round_rect_shader, c"intensity"     .as_ptr()) as GLuint;
 
                 gl::VertexAttribPointer(a_position,      2, gl::FLOAT, gl::FALSE, size_vertex,   0             as _);
                 gl::VertexAttribPointer(a_size,          2, gl::FLOAT, gl::FALSE, size_vertex, ( 2 * size_f32) as _);
@@ -129,7 +129,7 @@ impl RoundQuadsScene {
                 matrix: Mat4::default(),
                 viewport,
 
-                round_quad_shader,
+                round_rect_shader,
                 vao,
                 vbo,
                 ebo,
@@ -224,7 +224,7 @@ impl RoundQuadsScene {
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
-            gl::UseProgram(self.round_quad_shader);
+            gl::UseProgram(self.round_rect_shader);
             gl::DrawElements(
                 gl::TRIANGLES,
                 mem::size_of_val(self.indices.as_slice()) as GLsizei,
@@ -241,7 +241,7 @@ impl RoundQuadsScene {
             self.viewport = Vec2::new(width as f32, height as f32);
             self.matrix = camera.matrix(self.viewport);
 
-            gl::UseProgram(self.round_quad_shader);
+            gl::UseProgram(self.round_rect_shader);
             gl::UniformMatrix4fv(self.u_mvp_quad, 1, gl::FALSE, self.matrix.as_ref().as_ptr());
         }
     }
@@ -250,7 +250,7 @@ impl RoundQuadsScene {
 impl Drop for RoundQuadsScene {
     fn drop(&mut self) {
         unsafe {
-            gl::DeleteProgram(self.round_quad_shader);
+            gl::DeleteProgram(self.round_rect_shader);
             gl::DeleteBuffers(1, &self.vbo);
             gl::DeleteVertexArrays(1, &self.vao);
         }

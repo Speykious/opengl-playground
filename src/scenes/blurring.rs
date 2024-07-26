@@ -1,48 +1,51 @@
-use std::{
-    f32::consts::{PI, TAU},
-    mem,
-    time::Instant,
-};
+use std::{mem, time::Instant};
 
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-use glam::{vec2, Mat4, Vec2, Vec4};
-use rand::Rng;
+use glam::{vec2, Mat4, Vec2};
+use image::ImageFormat;
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::camera::Camera;
 
 use super::create_shader_program;
 
-const N_QUADS: usize = 100;
-
 const SRC_VERT_QUAD: &[u8] = include_bytes!("shaders/quad.vert");
-const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("shaders/round-rect.frag");
+const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("shaders/texture.frag");
 
 const SRC_VERT_SCREEN: &[u8] = include_bytes!("shaders/screen.vert");
-const SRC_FRAG_SCREEN: &[u8] = include_bytes!("shaders/screen.frag");
+// const SRC_FRAG_SCREEN: &[u8] = include_bytes!("shaders/screen.frag");
+const SRC_FRAG_BLUR: &[u8] = include_bytes!("shaders/blur.frag");
+
+const GURA_JPG: &[u8] = include_bytes!("../../assets/gura.jpg");
 
 pub struct BlurringScene {
     matrix: Mat4,
     viewport: Vec2,
 
-    round_quad_shader: GLuint,
-    vao: GLuint,
-    vbo: GLuint,
-    ebo: GLuint,
+    quad_shader: GLuint,
+    quad_vao: GLuint,
+    quad_vbo: GLuint,
+    quad_ebo: GLuint,
 
-    fbo: GLuint,
-    fb_texture: GLuint,
+    screen_fbo: GLuint,
+    screen_texture: GLuint,
     screen_shader: GLuint,
     screen_vao: GLuint,
     screen_vbo: GLuint,
 
+    blur_samples: i32,
+
+    ping_pong_fbo: GLuint,
+    ping_pong_texture: GLuint,
+
+    gura_texture: GLuint,
+
     u_mvp_quad: GLint,
+    u_samples: GLint,
+    u_direction: GLint,
+    u_screen_size: GLint,
 
-    quads: Vec<Quad>,
-    vertices: Vec<[Vertex; 4]>,
     indices: Vec<[u32; 6]>,
-
-    area_width: u32,
 
     last_instant: Instant,
 }
@@ -52,19 +55,18 @@ impl BlurringScene {
         let PhysicalSize { width, height } = window.inner_size();
         let viewport = Vec2::new(width as f32, height as f32);
 
-        let area_width = (N_QUADS as f32).sqrt() as u32;
+        // They don't need to be vecs, but I'm too lazy to un-vector them now.
+        let mut quads = Vec::with_capacity(1);
+        let mut vertices = Vec::with_capacity(1);
+        let mut indices = Vec::with_capacity(1);
 
-        let mut quads = Vec::with_capacity(N_QUADS);
-        let mut vertices = Vec::with_capacity(N_QUADS);
-        let mut indices = Vec::with_capacity(N_QUADS);
-
-        let mut rng = rand::thread_rng();
-        for i in 0..(N_QUADS as u32) {
-            let quad = Quad::random(&mut rng, i, area_width);
-            vertices.push(quad.vertices(0.5));
-            indices.push(quad.indices(i));
-            quads.push(quad);
-        }
+        let quad = Quad {
+            position: Vec2::ZERO,
+            size: vec2(1280.0, 640.0),
+        };
+        vertices.push(quad.vertices());
+        indices.push(quad.indices(0));
+        quads.push(quad);
 
         unsafe {
             // Normal blending
@@ -73,16 +75,16 @@ impl BlurringScene {
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
             // quads shader and vertices
-            let round_quad_shader = create_shader_program(SRC_VERT_QUAD, SRC_FRAG_ROUND_RECT);
-            let u_mvp_quad = gl::GetUniformLocation(round_quad_shader, c"u_mvp".as_ptr());
+            let quad_shader = create_shader_program(SRC_VERT_QUAD, SRC_FRAG_TEXTURE);
+            let u_mvp_quad = gl::GetUniformLocation(quad_shader, c"u_mvp".as_ptr());
 
-            let mut vao: GLuint = 0;
-            gl::GenVertexArrays(1, &mut vao);
-            gl::BindVertexArray(vao);
+            let mut quad_vao: GLuint = 0;
+            gl::GenVertexArrays(1, &mut quad_vao);
+            gl::BindVertexArray(quad_vao);
 
-            let mut vbo: GLuint = 0;
-            gl::GenBuffers(1, &mut vbo);
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
+            let mut quad_vbo: GLuint = 0;
+            gl::GenBuffers(1, &mut quad_vbo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, quad_vbo);
             gl::BufferData(
                 gl::ARRAY_BUFFER,
                 mem::size_of_val(vertices.as_slice()) as GLsizeiptr,
@@ -90,9 +92,9 @@ impl BlurringScene {
                 gl::DYNAMIC_DRAW,
             );
 
-            let mut ebo: GLuint = 0;
-            gl::GenBuffers(1, &mut ebo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
+            let mut quad_ebo: GLuint = 0;
+            gl::GenBuffers(1, &mut quad_ebo);
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, quad_ebo);
             gl::BufferData(
                 gl::ELEMENT_ARRAY_BUFFER,
                 mem::size_of_val(indices.as_slice()) as GLsizeiptr,
@@ -103,71 +105,59 @@ impl BlurringScene {
             let size_vertex = mem::size_of::<Vertex>() as GLsizei;
             let size_f32 = mem::size_of::<f32>() as GLsizei;
 
-            #[rustfmt::skip]
             {
-                let a_position      = gl::GetAttribLocation(round_quad_shader, c"position"      .as_ptr()) as GLuint;
-                let a_size          = gl::GetAttribLocation(round_quad_shader, c"size"          .as_ptr()) as GLuint;
-                let a_fill_color    = gl::GetAttribLocation(round_quad_shader, c"fill_color"    .as_ptr()) as GLuint;
-                let a_stroke_color  = gl::GetAttribLocation(round_quad_shader, c"stroke_color"  .as_ptr()) as GLuint;
-                let a_border_radius = gl::GetAttribLocation(round_quad_shader, c"border_radius" .as_ptr()) as GLuint;
-                let a_border_width  = gl::GetAttribLocation(round_quad_shader, c"border_width"  .as_ptr()) as GLuint;
-                let a_intensity     = gl::GetAttribLocation(round_quad_shader, c"intensity"     .as_ptr()) as GLuint;
-
-                gl::VertexAttribPointer(a_position,      2, gl::FLOAT, gl::FALSE, size_vertex,   0             as _);
-                gl::VertexAttribPointer(a_size,          2, gl::FLOAT, gl::FALSE, size_vertex, ( 2 * size_f32) as _);
-                gl::VertexAttribPointer(a_fill_color,    4, gl::FLOAT, gl::FALSE, size_vertex, ( 4 * size_f32) as _);
-                gl::VertexAttribPointer(a_stroke_color,  4, gl::FLOAT, gl::FALSE, size_vertex, ( 8 * size_f32) as _);
-                gl::VertexAttribPointer(a_border_radius, 1, gl::FLOAT, gl::FALSE, size_vertex, (12 * size_f32) as _);
-                gl::VertexAttribPointer(a_border_width,  1, gl::FLOAT, gl::FALSE, size_vertex, (13 * size_f32) as _);
-                gl::VertexAttribPointer(a_intensity,     1, gl::FLOAT, gl::FALSE, size_vertex, (14 * size_f32) as _);
-
-                gl::EnableVertexAttribArray(a_position      as GLuint);
-                gl::EnableVertexAttribArray(a_size          as GLuint);
-                gl::EnableVertexAttribArray(a_fill_color    as GLuint);
-                gl::EnableVertexAttribArray(a_stroke_color  as GLuint);
-                gl::EnableVertexAttribArray(a_border_radius as GLuint);
-                gl::EnableVertexAttribArray(a_border_width  as GLuint);
-                gl::EnableVertexAttribArray(a_intensity     as GLuint);
+                let a_position = gl::GetAttribLocation(quad_shader, c"position".as_ptr()) as GLuint;
+                gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, size_vertex, 0 as _);
+                gl::EnableVertexAttribArray(a_position as GLuint);
             };
 
             // framebuffer and its texture
-            let mut fbo: GLuint = 0;
-            gl::GenFramebuffers(1, &mut fbo);
-            gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
+            let mut screen_fbo: GLuint = 0;
+            gl::GenFramebuffers(1, &mut screen_fbo);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, screen_fbo);
 
-            let mut fb_texture: GLuint = 0;
-            gl::GenTextures(1, &mut fb_texture);
-            gl::BindTexture(gl::TEXTURE_2D, fb_texture);
-            gl::TexImage2D(
-                gl::TEXTURE_2D,
-                0,
-                gl::RGB as GLint,
-                width as GLsizei,
-                height as GLsizei,
-                0,
-                gl::RGB,
-                gl::UNSIGNED_BYTE,
-                std::ptr::null(),
-            );
-            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as GLint);
-            gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
-
+            let mut screen_texture: GLuint = 0;
+            gl::GenTextures(1, &mut screen_texture);
+            Self::upload_texture(screen_texture, width, height, std::ptr::null());
             gl::FramebufferTexture2D(
                 gl::FRAMEBUFFER,
                 gl::COLOR_ATTACHMENT0,
                 gl::TEXTURE_2D,
-                fb_texture,
+                screen_texture,
                 0,
             );
 
             if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
-                eprintln!("framebuffer not complete");
+                eprintln!("screen framebuffer not complete");
+            }
+
+            // ping-pong framebuffer
+            let mut ping_pong_fbo: GLuint = 0;
+            gl::GenFramebuffers(1, &mut ping_pong_fbo);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, ping_pong_fbo);
+
+            let mut ping_pong_texture: GLuint = 0;
+            gl::GenTextures(1, &mut ping_pong_texture);
+            Self::upload_texture(ping_pong_texture, width, height, std::ptr::null());
+            gl::FramebufferTexture2D(
+                gl::FRAMEBUFFER,
+                gl::COLOR_ATTACHMENT0,
+                gl::TEXTURE_2D,
+                ping_pong_texture,
+                0,
+            );
+
+            if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
+                eprintln!("ping-pong framebuffer not complete");
             }
 
             gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
 
             // screen shader and vertices
-            let screen_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_SCREEN);
+            let screen_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_BLUR);
+            let u_samples = gl::GetUniformLocation(screen_shader, c"u_samples".as_ptr());
+            let u_direction = gl::GetUniformLocation(screen_shader, c"u_direction".as_ptr());
+            let u_screen_size = gl::GetUniformLocation(screen_shader, c"u_screen_size".as_ptr());
 
             let mut screen_vao: GLuint = 0;
             gl::GenVertexArrays(1, &mut screen_vao);
@@ -197,113 +187,96 @@ impl BlurringScene {
                 gl::EnableVertexAttribArray(a_uv       as GLuint);
             };
 
+            // Gura texture
+            let gura = image::load_from_memory_with_format(GURA_JPG, ImageFormat::Jpeg);
+            let gura = gura.unwrap().into_rgba8();
+
+            let mut gura_texture: GLuint = 0;
+            gl::GenTextures(1, &mut gura_texture);
+            Self::upload_texture(gura_texture, gura.width(), gura.height(), gura.as_ptr());
+
             Self {
                 matrix: Mat4::default(),
                 viewport,
 
-                round_quad_shader,
-                vao,
-                vbo,
-                ebo,
+                quad_shader,
+                quad_vao,
+                quad_vbo,
+                quad_ebo,
 
-                fbo,
-                fb_texture,
+                screen_fbo,
+                screen_texture,
                 screen_shader,
                 screen_vao,
                 screen_vbo,
 
+                blur_samples: 64,
+
+                ping_pong_fbo,
+                ping_pong_texture,
+
+                gura_texture,
+
                 u_mvp_quad,
+                u_samples,
+                u_direction,
+                u_screen_size,
 
-                quads,
-                vertices,
                 indices,
-
-                area_width,
 
                 last_instant: Instant::now(),
             }
         }
     }
 
-    pub fn draw(&mut self, camera: &Camera, mouse_pos: Vec2) {
-        let dt = self.last_instant.elapsed().as_secs_f32();
-        self.last_instant = Instant::now();
-
-        // rotate surroundings of mouse
-        let mouse_pos = camera.pointer_to_pos(mouse_pos, self.viewport);
-        let surround_radius = 320.0;
-        let surround_area = Vec2::splat(surround_radius);
-
-        let aw = self.area_width;
-        let (x_beg, y_beg) = Quad::closest_grid_idx_from_pos(mouse_pos - surround_area, aw);
-        let (x_end, y_end) = Quad::closest_grid_idx_from_pos(mouse_pos + surround_area, aw);
-
-        for y in y_beg..=y_end {
-            for x in x_beg..=x_end {
-                let i = (y * self.area_width + x) as usize;
-
-                if let Some(quad) = self.quads.get_mut(i) {
-                    let distance = Vec2::distance(quad.position, mouse_pos);
-                    let intensity = (surround_radius - distance).max(0.0) / surround_radius;
-
-                    quad.rotation += (dt * PI) * 2.0 * intensity;
-                    self.vertices[i] = quad.vertices(2.0 * intensity + 0.5);
-                }
-            }
-        }
-
-        self.update_vertices(x_beg, x_end, y_beg, y_end);
-
-        self.draw_with_clear_color(0.0, 0.2, 0.15, 0.5);
-
-        // reset intensity
-        for y in y_beg..=y_end {
-            for x in x_beg..=x_end {
-                let i = (y * self.area_width + x) as usize;
-
-                if let Some(quad) = self.quads.get_mut(i) {
-                    self.vertices[i] = quad.vertices(0.5);
-                }
-            }
-        }
-
-        // reset vertices (otherwise artifacts appear if the mouse moves too quickly)
-        self.update_vertices(x_beg, x_end, y_beg, y_end);
+    unsafe fn upload_texture(texture: GLuint, width: u32, height: u32, data: *const u8) {
+        gl::BindTexture(gl::TEXTURE_2D, texture);
+        gl::TexImage2D(
+            gl::TEXTURE_2D,
+            0,
+            gl::RGBA8 as GLint,
+            width as GLsizei,
+            height as GLsizei,
+            0,
+            gl::RGBA,
+            gl::UNSIGNED_BYTE,
+            data as *const _,
+        );
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as GLint);
+        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
+        gl::TexParameteri(
+            gl::TEXTURE_2D,
+            gl::TEXTURE_WRAP_S,
+            gl::CLAMP_TO_BORDER as GLint,
+        );
+        gl::TexParameteri(
+            gl::TEXTURE_2D,
+            gl::TEXTURE_WRAP_T,
+            gl::CLAMP_TO_BORDER as GLint,
+        );
     }
 
-    fn update_vertices(&mut self, x_beg: u32, x_end: u32, y_beg: u32, y_end: u32) {
-        unsafe {
-            gl::BindVertexArray(self.vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
+    pub fn draw(&mut self, _camera: &Camera, _mouse_pos: Vec2) {
+        self.last_instant = Instant::now();
 
-            for y in y_beg..=y_end {
-                let i_beg = (y * self.area_width + x_beg) as usize;
-                let i_end = (y * self.area_width + x_end) as usize;
-
-                gl::BufferSubData(
-                    gl::ARRAY_BUFFER,
-                    mem::size_of_val(&self.vertices[..i_beg]) as GLsizeiptr,
-                    mem::size_of_val(&self.vertices[i_beg..=i_end]) as GLsizeiptr,
-                    self.vertices[i_beg..=i_end].as_ptr() as *const _,
-                );
-            }
-        }
+        self.draw_with_clear_color(0.0, 0.2, 0.15, 0.5);
     }
 
     fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
         unsafe {
             // draw to framebuffer
-            gl::BindFramebuffer(gl::FRAMEBUFFER, self.fbo);
+            gl::BindFramebuffer(gl::FRAMEBUFFER, self.screen_fbo);
 
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
-            gl::UseProgram(self.round_quad_shader);
+            gl::UseProgram(self.quad_shader);
 
-            gl::BindVertexArray(self.vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
+            gl::BindVertexArray(self.quad_vao);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.quad_vbo);
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.quad_ebo);
 
+            gl::BindTexture(gl::TEXTURE_2D, self.gura_texture);
+            gl::ActiveTexture(gl::TEXTURE0);
             gl::DrawElements(
                 gl::TRIANGLES,
                 mem::size_of_val(self.indices.as_slice()) as GLsizei,
@@ -311,18 +284,37 @@ impl BlurringScene {
                 std::ptr::null(),
             );
 
-            // draw framebuffer to screen
-            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            // draw framebuffer to ping-pong framebuffer
+            gl::BindFramebuffer(gl::FRAMEBUFFER, self.ping_pong_fbo);
 
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
             gl::UseProgram(self.screen_shader);
+            gl::Uniform1i(self.u_samples, self.blur_samples);
+            gl::Uniform2f(self.u_direction, 0.5, 0.0);
 
             gl::BindVertexArray(self.screen_vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.screen_vbo);
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
 
-            gl::BindTexture(gl::TEXTURE_2D, self.fb_texture);
+            gl::BindTexture(gl::TEXTURE_2D, self.screen_texture);
+            gl::ActiveTexture(gl::TEXTURE0);
+            gl::DrawArrays(gl::TRIANGLES, 0, 6);
+
+            // draw ping-pong framebuffer to screen
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+
+            gl::ClearColor(r, g, b, a);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
+            gl::UseProgram(self.screen_shader);
+            gl::Uniform1i(self.u_samples, self.blur_samples);
+            gl::Uniform2f(self.u_direction, 0.0, 0.5);
+
+            gl::BindVertexArray(self.screen_vao);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.screen_vbo);
+            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+
+            gl::BindTexture(gl::TEXTURE_2D, self.ping_pong_texture);
             gl::ActiveTexture(gl::TEXTURE0);
             gl::DrawArrays(gl::TRIANGLES, 0, 6);
         }
@@ -335,8 +327,34 @@ impl BlurringScene {
             self.viewport = Vec2::new(width as f32, height as f32);
             self.matrix = camera.matrix(self.viewport);
 
-            gl::UseProgram(self.round_quad_shader);
+            gl::UseProgram(self.quad_shader);
             gl::UniformMatrix4fv(self.u_mvp_quad, 1, gl::FALSE, self.matrix.as_ref().as_ptr());
+
+            gl::UseProgram(self.screen_shader);
+            gl::Uniform2f(self.u_screen_size, self.viewport.x, self.viewport.y);
+
+            // update framebuffer texture sizes
+            let (w, h) = (width as u32, height as u32);
+
+            gl::BindFramebuffer(gl::FRAMEBUFFER, self.screen_fbo);
+            Self::upload_texture(self.screen_texture, w, h, std::ptr::null());
+            gl::FramebufferTexture2D(
+                gl::FRAMEBUFFER,
+                gl::COLOR_ATTACHMENT0,
+                gl::TEXTURE_2D,
+                self.screen_texture,
+                0,
+            );
+
+            gl::BindFramebuffer(gl::FRAMEBUFFER, self.ping_pong_fbo);
+            Self::upload_texture(self.ping_pong_texture, w, h, std::ptr::null());
+            gl::FramebufferTexture2D(
+                gl::FRAMEBUFFER,
+                gl::COLOR_ATTACHMENT0,
+                gl::TEXTURE_2D,
+                self.ping_pong_texture,
+                0,
+            );
         }
     }
 }
@@ -344,9 +362,9 @@ impl BlurringScene {
 impl Drop for BlurringScene {
     fn drop(&mut self) {
         unsafe {
-            gl::DeleteProgram(self.round_quad_shader);
-            gl::DeleteBuffers(1, &self.vbo);
-            gl::DeleteVertexArrays(1, &self.vao);
+            gl::DeleteProgram(self.quad_shader);
+            gl::DeleteBuffers(1, &self.quad_vbo);
+            gl::DeleteVertexArrays(1, &self.quad_vao);
         }
     }
 }
@@ -356,85 +374,21 @@ impl Drop for BlurringScene {
 struct Quad {
     pub position: Vec2,
     pub size: Vec2,
-    pub rotation: f32,
-    pub border_radius: f32,
-    pub border_width: f32,
-    pub fill_color: u32,
-    pub stroke_color: u32,
 }
 
 impl Quad {
-    fn pos_from_idx(i: u32, area_width: u32) -> Vec2 {
-        Self::pos_from_grid_idx((i % area_width, i / area_width), area_width)
-    }
-
-    fn pos_from_grid_idx((x, y): (u32, u32), area_width: u32) -> Vec2 {
-        (vec2(x as f32, y as f32) - area_width as f32 * 0.5) * 32.0
-    }
-
-    fn closest_grid_idx_from_pos(pos: Vec2, area_width: u32) -> (u32, u32) {
-        let width = area_width as f32;
-        let upper_limit = width - 1.0;
-
-        let pos = pos / 32.0 + width * 0.5;
-        (
-            pos.x.round().clamp(0.0, upper_limit) as u32,
-            pos.y.round().clamp(0.0, upper_limit) as u32,
-        )
-    }
-
-    fn random(rng: &mut impl Rng, i: u32, area_width: u32) -> Self {
-        Self {
-            position: Self::pos_from_idx(i, area_width),
-            size: vec2(rng.gen_range(20.0..=40.0), rng.gen_range(20.0..=40.0)),
-            rotation: rng.gen_range(0.0..TAU),
-            border_radius: rng.gen_range(1.0..=5.0),
-            border_width: rng.gen_range(1.0..=5.0),
-            fill_color: u32::from_le_bytes([
-                rng.gen_range(128..=255),
-                rng.gen_range(128..=255),
-                rng.gen_range(128..=255),
-                rng.gen_range(128..=255),
-            ]),
-            stroke_color: u32::from_le_bytes([
-                rng.gen_range(24..=128),
-                rng.gen_range(24..=128),
-                rng.gen_range(24..=128),
-                rng.gen_range(128..=255),
-            ]),
-        }
-    }
-
-    fn vertices(self, intensity: f32) -> [Vertex; 4] {
-        let Self {
-            position,
-            size,
-            rotation,
-            border_radius,
-            border_width,
-            fill_color,
-            stroke_color,
-        } = self;
-
-        let r = vec2(rotation.cos(), rotation.sin());
+    fn vertices(self) -> [Vertex; 4] {
+        let Self { position, size } = self;
 
         #[rustfmt::skip]
         let pos_dims = [
-            ((vec2(-0.5, -0.5) * size).rotate(r)) + position,
-            ((vec2(-0.5,  0.5) * size).rotate(r)) + position,
-            ((vec2( 0.5,  0.5) * size).rotate(r)) + position,
-            ((vec2( 0.5, -0.5) * size).rotate(r)) + position,
+            (vec2(-0.5, -0.5) * size) + position,
+            (vec2(-0.5,  0.5) * size) + position,
+            (vec2( 0.5,  0.5) * size) + position,
+            (vec2( 0.5, -0.5) * size) + position,
         ];
 
-        pos_dims.map(|position| Vertex {
-            position,
-            size,
-            fill_color: Vec4::from_array(fill_color.to_le_bytes().map(|n| n as f32)) / 255.0,
-            stroke_color: Vec4::from_array(stroke_color.to_le_bytes().map(|n| n as f32)) / 255.0,
-            border_radius,
-            border_width,
-            intensity,
-        })
+        pos_dims.map(|position| Vertex { position, size })
     }
 
     fn indices(&self, quad_index: u32) -> [u32; 6] {
@@ -448,11 +402,6 @@ impl Quad {
 struct Vertex {
     position: Vec2,
     size: Vec2,
-    fill_color: Vec4,
-    stroke_color: Vec4,
-    border_radius: f32,
-    border_width: f32,
-    intensity: f32,
 }
 
 #[repr(C)]

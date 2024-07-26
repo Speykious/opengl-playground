@@ -17,7 +17,7 @@ pub enum Scenes {
 
 impl Scenes {
     pub fn new(window: &Window) -> Self {
-        Self::RoundQuads(RoundQuadsScene::new(window))
+        Self::Blurring(BlurringScene::new(window))
     }
 
     pub fn switch_scene(&mut self, window: &Window, keycode: NamedKey) {
