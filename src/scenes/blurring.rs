@@ -36,7 +36,7 @@ pub struct BlurringScene {
     screen_vao: GLuint,
     screen_vbo: GLuint,
 
-    u_mvp_quad: i32,
+    u_mvp_quad: GLint,
 
     quads: Vec<Quad>,
     vertices: Vec<[Vertex; 4]>,
@@ -183,6 +183,20 @@ impl BlurringScene {
                 gl::STATIC_DRAW,
             );
 
+            let size_screen_vertex = mem::size_of::<ScreenVertex>() as GLsizei;
+
+            #[rustfmt::skip]
+            {
+                let a_position = gl::GetAttribLocation(screen_shader, c"position" .as_ptr()) as GLuint;
+                let a_uv       = gl::GetAttribLocation(screen_shader, c"uv"       .as_ptr()) as GLuint;
+
+                gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, size_screen_vertex,   0             as _);
+                gl::VertexAttribPointer(a_uv,       2, gl::FLOAT, gl::FALSE, size_screen_vertex, ( 2 * size_f32) as _);
+
+                gl::EnableVertexAttribArray(a_position as GLuint);
+                gl::EnableVertexAttribArray(a_uv       as GLuint);
+            };
+
             Self {
                 matrix: Mat4::default(),
                 viewport,
@@ -309,6 +323,7 @@ impl BlurringScene {
             gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
 
             gl::BindTexture(gl::TEXTURE_2D, self.fb_texture);
+            gl::ActiveTexture(gl::TEXTURE0);
             gl::DrawArrays(gl::TRIANGLES, 0, 6);
         }
     }
