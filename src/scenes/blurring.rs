@@ -10,11 +10,52 @@ use crate::camera::Camera;
 
 use super::create_shader_program;
 
+mod blur {
+    // osu!lazer does a 2-pass gaussian blur, code taken from osu!framework
+
+    /// Evaluates a 1-D gaussian distribution with 0 mean and sigma standard deviation at position x.
+    pub fn gaussian(x: f64, sigma: f64) -> f64 {
+        const INV_SQRT_2PI: f64 = 0.398942280401;
+        INV_SQRT_2PI * (-0.5 * x.powi(2) / sigma.powi(2)).exp() / sigma
+    }
+
+    /// Finds the gaussian blur kernel size where the magnitude of the gaussian distribution within the kernel
+    /// is greater than or equal to `0.1` times the maximum of the distribution.
+    pub fn kernel_size(sigma: f64) -> u32 {
+        if sigma == 0.0 {
+            return 0;
+        }
+
+        const CUTOFF_THRESHOLD: f64 = 0.1;
+        const MAX_RADIUS: u32 = 256;
+
+        let center = gaussian(0.0, sigma);
+        let threshold = CUTOFF_THRESHOLD * center;
+
+        for i in 0..MAX_RADIUS {
+            if gaussian(1.0, sigma) < threshold {
+                return i.saturating_sub(1);
+            }
+        }
+
+        MAX_RADIUS
+    }
+
+    pub fn write_kernel(sigma: f64, kernel: &mut [f32; 256]) -> u32 {
+        let size = kernel_size(sigma);
+
+        for (i, k) in kernel.iter_mut().enumerate().take(size as usize) {
+            *k = gaussian(i as f64, sigma) as f32;
+        }
+
+        size
+    }
+}
+
 const SRC_VERT_QUAD: &[u8] = include_bytes!("shaders/quad.vert");
 const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("shaders/texture.frag");
 
 const SRC_VERT_SCREEN: &[u8] = include_bytes!("shaders/screen.vert");
-// const SRC_FRAG_SCREEN: &[u8] = include_bytes!("shaders/screen.frag");
 const SRC_FRAG_BLUR: &[u8] = include_bytes!("shaders/blur.frag");
 
 const GURA_JPG: &[u8] = include_bytes!("../../assets/gura.jpg");
@@ -34,17 +75,20 @@ pub struct BlurringScene {
     screen_vao: GLuint,
     screen_vbo: GLuint,
 
-    blur_samples: i32,
-
     ping_pong_fbo: GLuint,
     ping_pong_texture: GLuint,
 
     gura_texture: GLuint,
 
     u_mvp_quad: GLint,
-    u_samples: GLint,
+    u_kernel: GLint,
+    u_kernel_size: GLint,
     u_direction: GLint,
     u_screen_size: GLint,
+
+    blur_sigma: f64,
+    blur_kernel: Box<[f32; 256]>,
+    blur_kernel_size: i32,
 
     indices: Vec<[u32; 6]>,
 
@@ -156,7 +200,8 @@ impl BlurringScene {
 
             // screen shader and vertices
             let screen_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_BLUR);
-            let u_samples = gl::GetUniformLocation(screen_shader, c"u_samples".as_ptr());
+            let u_kernel = gl::GetUniformLocation(screen_shader, c"u_kernel".as_ptr());
+            let u_kernel_size = gl::GetUniformLocation(screen_shader, c"u_kernel_size".as_ptr());
             let u_direction = gl::GetUniformLocation(screen_shader, c"u_direction".as_ptr());
             let u_screen_size = gl::GetUniformLocation(screen_shader, c"u_screen_size".as_ptr());
 
@@ -211,17 +256,20 @@ impl BlurringScene {
                 screen_vao,
                 screen_vbo,
 
-                blur_samples: 4,
-
                 ping_pong_fbo,
                 ping_pong_texture,
 
                 gura_texture,
 
                 u_mvp_quad,
-                u_samples,
+                u_kernel,
+                u_kernel_size,
                 u_direction,
                 u_screen_size,
+
+                blur_sigma: 1.0,
+                blur_kernel: Box::new([0.0; 256]),
+                blur_kernel_size: 0,
 
                 indices,
 
@@ -258,14 +306,31 @@ impl BlurringScene {
     }
 
     pub fn on_key(&mut self, keycode: NamedKey) {
-        match keycode {
+        let update_blur = match keycode {
             NamedKey::ArrowUp => {
-                self.blur_samples = (self.blur_samples + 4).clamp(0, 512);
+                self.blur_sigma = (self.blur_sigma + 1.0).clamp(0.0, 512.0);
+                true
             }
             NamedKey::ArrowDown => {
-                self.blur_samples = (self.blur_samples - 4).clamp(0, 512);
+                self.blur_sigma = (self.blur_sigma - 1.0).clamp(0.0, 512.0);
+                true
             }
-            _ => {}
+            _ => false,
+        };
+
+        if update_blur {
+            self.blur_kernel_size =
+                blur::write_kernel(self.blur_sigma, &mut self.blur_kernel) as i32;
+
+            unsafe {
+                gl::UseProgram(self.screen_shader);
+                gl::Uniform1i(self.u_kernel_size, self.blur_kernel_size);
+                gl::Uniform1fv(
+                    self.u_kernel,
+                    self.blur_kernel_size,
+                    self.blur_kernel.as_ptr(),
+                );
+            }
         }
     }
 
@@ -303,7 +368,6 @@ impl BlurringScene {
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
             gl::UseProgram(self.screen_shader);
-            gl::Uniform1i(self.u_samples, self.blur_samples);
             gl::Uniform2f(self.u_direction, 0.5, 0.0);
 
             gl::BindVertexArray(self.screen_vao);
@@ -320,7 +384,6 @@ impl BlurringScene {
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
             gl::UseProgram(self.screen_shader);
-            gl::Uniform1i(self.u_samples, self.blur_samples);
             gl::Uniform2f(self.u_direction, 0.0, 0.5);
 
             gl::BindVertexArray(self.screen_vao);
