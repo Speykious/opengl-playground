@@ -28,6 +28,13 @@ impl Scenes {
         }
     }
 
+    pub fn on_key(&mut self, keycode: NamedKey) {
+        match self {
+            Self::RoundQuads(_) => {}
+            Self::Blurring(scene) => scene.on_key(keycode),
+        }
+    }
+
     pub fn draw(&mut self, camera: &Camera, mouse_pos: Vec2) {
         match self {
             Self::RoundQuads(scene) => scene.draw(camera, mouse_pos),

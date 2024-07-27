@@ -21,7 +21,7 @@ use scene_controller::SceneController;
 use scenes::Scenes;
 use winit::{
     application::ApplicationHandler,
-    event::{KeyEvent, WindowEvent},
+    event::{ElementState, KeyEvent, WindowEvent},
     event_loop::{ActiveEventLoop, ControlFlow, EventLoop},
     keyboard::{Key, NamedKey},
     raw_window_handle::HasWindowHandle as _,
@@ -269,6 +269,7 @@ impl ApplicationHandler for App {
                 event:
                     KeyEvent {
                         logical_key: Key::Named(NamedKey::Escape),
+                        state: ElementState::Pressed,
                         ..
                     },
                 ..
@@ -278,13 +279,15 @@ impl ApplicationHandler for App {
                 event:
                     KeyEvent {
                         logical_key: Key::Named(named_key),
+                        state: ElementState::Pressed,
                         ..
                     },
                 ..
             } => {
                 if let Some(AppState { window, .. }) = self.state.as_ref() {
                     let (scenes, _) = self.scenes.as_mut().unwrap();
-                    scenes.switch_scene(window, named_key)
+                    scenes.switch_scene(window, named_key);
+                    scenes.on_key(named_key);
                 }
             }
 

@@ -3,6 +3,7 @@ use std::{mem, time::Instant};
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use glam::{vec2, Mat4, Vec2};
 use image::ImageFormat;
+use winit::keyboard::NamedKey;
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::camera::Camera;
@@ -210,7 +211,7 @@ impl BlurringScene {
                 screen_vao,
                 screen_vbo,
 
-                blur_samples: 64,
+                blur_samples: 4,
 
                 ping_pong_fbo,
                 ping_pong_texture,
@@ -254,6 +255,18 @@ impl BlurringScene {
             gl::TEXTURE_WRAP_T,
             gl::CLAMP_TO_BORDER as GLint,
         );
+    }
+
+    pub fn on_key(&mut self, keycode: NamedKey) {
+        match keycode {
+            NamedKey::ArrowUp => {
+                self.blur_samples = (self.blur_samples + 4).clamp(0, 512);
+            }
+            NamedKey::ArrowDown => {
+                self.blur_samples = (self.blur_samples - 4).clamp(0, 512);
+            }
+            _ => {}
+        }
     }
 
     pub fn draw(&mut self, _camera: &Camera, _mouse_pos: Vec2) {
