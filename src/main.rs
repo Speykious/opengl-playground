@@ -314,7 +314,6 @@ impl ApplicationHandler for App {
             scenes.draw(&scene_ctrl.camera, self.mouse_pos);
 
             window.request_redraw();
-
             gl_surface.swap_buffers(gl_context).unwrap();
         }
     }

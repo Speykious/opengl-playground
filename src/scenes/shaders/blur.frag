@@ -1,7 +1,6 @@
 #version 330 core
 
 uniform vec2 u_direction;
-uniform vec2 u_screen_size;
 
 uniform sampler2D u_screen_texture;
 
@@ -10,76 +9,11 @@ in vec2 v_uv;
 out vec4 FragColor;
 
 const int SAMPLE_COUNT = 32;
+const float sigma = float(SAMPLE_COUNT - 1) / 7.0;
 
-const float OFFSETS[32] = float[32](
-    -30.48095077612771,
-    -28.482198852858183,
-    -26.48344712812872,
-    -24.484695584886197,
-    -22.485944209457497,
-    -20.487192992240907,
-    -18.48844192812288,
-    -16.48969101629867,
-    -14.490940258972138,
-    -12.492189658097768,
-    -10.493439208848661,
-    -8.494688887763292,
-    -6.4959386324091755,
-    -4.497188307705211,
-    -2.498437651462263,
-    -0.4996866407382734,
-    1.4990620619239194,
-    3.497813044460751,
-    5.496563491310285,
-    7.495313758095638,
-    9.49406403495946,
-    11.492814415362423,
-    13.491564939014534,
-    15.49031561813869,
-    17.4890664530808,
-    19.487817441187733,
-    21.4865685814993,
-    23.48531987689748,
-    25.48407133476425,
-    27.482822966811984,
-    29.481574788498758,
-    31
-);
-
-const float WEIGHTS[32] = float[32](
-    0.014103611123055963,
-    0.016343123734568685,
-    0.018749962456697536,
-    0.02129739135837967,
-    0.02395042260807683,
-    0.0266661785293826,
-    0.029394715319290752,
-    0.03208031383508486,
-    0.034663209616963966,
-    0.0370816998031612,
-    0.0392745319270594,
-    0.04118345199640175,
-    0.042755769739916225,
-    0.0439467898644485,
-    0.04472196108011658,
-    0.04505856902314301,
-    0.044946016822204504,
-    0.044388069032226876,
-    0.04340136184928223,
-    0.042014693906464506,
-    0.040267934027422625,
-    0.03821006461734886,
-    0.035896873658608205,
-    0.03338843745615966,
-    0.030746545377196143,
-    0.02803221464720005,
-    0.02530342873698209,
-    0.02261320897783451,
-    0.020008098515485795,
-    0.017527103719852118,
-    0.015201103924147138,
-    0.006783142715837166
-);
+float gaussian(in float x) {
+    return 0.39894 * exp(-0.5 * x * x / (sigma * sigma)) / sigma;
+}
 
 vec4 premult(vec4 color) {
     return vec4(color.rgb * color.a, color.a);
@@ -95,11 +29,13 @@ vec4 unpremult(vec4 color) {
 
 // Transparency-aware blur
 vec4 blur(in sampler2D image, vec2 direction, vec2 uv) {
-    vec4 result = vec4(0.0);
-    for (int i = 0; i < SAMPLE_COUNT; ++i) {
-        vec2 offset = direction * OFFSETS[i] / u_screen_size;
-        float weight = WEIGHTS[i];
-        result += premult(textureLod(image, uv + offset, 4.0)) * weight;
+    vec4 result = premult(texture(image, uv)) * gaussian(0.0);
+    for (int i = 1; i < SAMPLE_COUNT / 2; ++i) {
+        vec2 offset = direction * float(i) / textureSize(image, 1);
+        float weight = gaussian(float(i));
+
+        result += premult(texture(image, uv + offset)) * weight;
+        result += premult(texture(image, uv - offset)) * weight;
     }
     return unpremult(result);
 }
