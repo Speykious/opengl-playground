@@ -52,8 +52,6 @@ pub struct BlurringScene {
     last_instant: Instant,
 }
 
-const CLAMP_TO: GLenum = gl::CLAMP_TO_EDGE;
-
 impl BlurringScene {
     pub fn new(window: &Window) -> Self {
         let PhysicalSize { width, height } = window.inner_size();
@@ -71,7 +69,7 @@ impl BlurringScene {
                 gura.width(),
                 gura.height(),
                 gura.as_ptr(),
-                CLAMP_TO,
+                gl::CLAMP_TO_BORDER,
             );
 
             (gura, gura_texture)
@@ -90,7 +88,7 @@ impl BlurringScene {
             position: Vec2::ZERO,
             size: gura_size,
         };
-        vertices.push(quad.vertices_with_uv_inner_padding(Vec2::ZERO));
+        vertices.push(quad.vertices());
         indices.push(quad.indices(0));
         quads.push(quad);
 
@@ -155,7 +153,7 @@ impl BlurringScene {
                 gura_fb_size.x as GLuint,
                 gura_fb_size.y as GLuint,
                 std::ptr::null(),
-                CLAMP_TO,
+                gl::CLAMP_TO_EDGE,
             );
             gl::FramebufferTexture2D(
                 gl::FRAMEBUFFER,
@@ -181,7 +179,7 @@ impl BlurringScene {
                 gura_fb_size.x as GLuint,
                 gura_fb_size.y as GLuint,
                 std::ptr::null(),
-                CLAMP_TO,
+                gl::CLAMP_TO_EDGE,
             );
             gl::FramebufferTexture2D(
                 gl::FRAMEBUFFER,
@@ -462,31 +460,15 @@ struct Quad {
 }
 
 impl Quad {
-    // fn vertices(self) -> [Vertex; 4] {
-    //     let Self { position, size } = self;
-
-    //     #[rustfmt::skip]
-    //     return [
-    //         Vertex::new((vec2(-0.5, -0.5) * size) + position, vec2(0.0, 0.0)),
-    //         Vertex::new((vec2(-0.5,  0.5) * size) + position, vec2(0.0, 1.0)),
-    //         Vertex::new((vec2( 0.5,  0.5) * size) + position, vec2(1.0, 1.0)),
-    //         Vertex::new((vec2( 0.5, -0.5) * size) + position, vec2(1.0, 0.0)),
-    //     ];
-    // }
-
-    fn vertices_with_uv_inner_padding(self, padding: Vec2) -> [Vertex; 4] {
+    fn vertices(self) -> [Vertex; 4] {
         let Self { position, size } = self;
-
-        let padded_size = padding + size;
-        let a = padding / padded_size;
-        let b = (padded_size - padding) / padded_size;
 
         #[rustfmt::skip]
         return [
-            Vertex::new((vec2(-0.5, -0.5) * size) + position, vec2(a.x, a.y)),
-            Vertex::new((vec2(-0.5,  0.5) * size) + position, vec2(a.x, b.y)),
-            Vertex::new((vec2( 0.5,  0.5) * size) + position, vec2(b.x, b.y)),
-            Vertex::new((vec2( 0.5, -0.5) * size) + position, vec2(b.x, a.y)),
+            Vertex::new((vec2(-0.5, -0.5) * size) + position, vec2(0.0, 0.0)),
+            Vertex::new((vec2(-0.5,  0.5) * size) + position, vec2(0.0, 1.0)),
+            Vertex::new((vec2( 0.5,  0.5) * size) + position, vec2(1.0, 1.0)),
+            Vertex::new((vec2( 0.5, -0.5) * size) + position, vec2(1.0, 0.0)),
         ];
     }
 
@@ -508,22 +490,6 @@ impl Vertex {
     const fn new(position: Vec2, uv: Vec2) -> Self {
         Self { position, uv }
     }
-}
-
-fn framebuffer_inner_vertices(size: Vec2, padding: Vec2) -> [Vertex; 6] {
-    let a = -padding / size;
-    let b = (size + padding) / size;
-
-    #[rustfmt::skip]
-    return [
-                      // position       // uv
-        Vertex::new(vec2(-1.0,  1.0), vec2(a.x, b.y)),
-        Vertex::new(vec2(-1.0, -1.0), vec2(a.x, a.y)),
-        Vertex::new(vec2( 1.0, -1.0), vec2(b.x, a.y)),
-        Vertex::new(vec2(-1.0,  1.0), vec2(a.x, b.y)),
-        Vertex::new(vec2( 1.0, -1.0), vec2(b.x, a.y)),
-        Vertex::new(vec2( 1.0,  1.0), vec2(b.x, b.y)),
-    ];
 }
 
 #[rustfmt::skip]
