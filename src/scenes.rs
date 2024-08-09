@@ -5,7 +5,7 @@ use blurring::BlurringScene;
 use gl::types::GLuint;
 use glam::Vec2;
 use round_quads::RoundQuadsScene;
-use winit::keyboard::NamedKey;
+use winit::keyboard::{Key, NamedKey, SmolStr};
 use winit::window::Window;
 
 use crate::camera::Camera;
@@ -20,15 +20,15 @@ impl Scenes {
         Self::Blurring(BlurringScene::new(window))
     }
 
-    pub fn switch_scene(&mut self, window: &Window, keycode: NamedKey) {
+    pub fn switch_scene(&mut self, window: &Window, keycode: Key<SmolStr>) {
         match keycode {
-            NamedKey::F1 => *self = Self::RoundQuads(RoundQuadsScene::new(window)),
-            NamedKey::F2 => *self = Self::Blurring(BlurringScene::new(window)),
+            Key::Named(NamedKey::F1) => *self = Self::RoundQuads(RoundQuadsScene::new(window)),
+            Key::Named(NamedKey::F2) => *self = Self::Blurring(BlurringScene::new(window)),
             _ => (),
         }
     }
 
-    pub fn on_key(&mut self, keycode: NamedKey) {
+    pub fn on_key(&mut self, keycode: Key<SmolStr>) {
         match self {
             Self::RoundQuads(_) => {}
             Self::Blurring(scene) => scene.on_key(keycode),

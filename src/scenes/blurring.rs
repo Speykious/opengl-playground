@@ -4,7 +4,7 @@ use std::{mem, time::Instant};
 use gl::types::{GLenum, GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use glam::{ivec2, vec2, IVec2, Mat4, Vec2};
 use image::ImageFormat;
-use winit::keyboard::NamedKey;
+use winit::keyboard::{Key, NamedKey, SmolStr};
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::camera::Camera;
@@ -47,6 +47,7 @@ pub struct BlurringScene {
     u_kernel_size: GLint,
 
     kernel_size: i32,
+    is_kawase: bool,
 
     indices: Vec<[u32; 6]>,
 
@@ -61,6 +62,7 @@ impl BlurringScene {
         let (gura, gura_texture) = unsafe {
             // Gura texture
             let gura = image::load_from_memory_with_format(GURA_JPG, ImageFormat::Jpeg);
+            // let gura = image::load_from_memory_with_format(BIG_SQUARES_PNG, ImageFormat::Png);
             let gura = gura.unwrap().into_rgba8();
 
             let mut gura_texture: GLuint = 0;
@@ -268,6 +270,7 @@ impl BlurringScene {
                 u_kernel_size,
 
                 kernel_size: 16,
+                is_kawase: false,
 
                 indices,
 
@@ -301,22 +304,25 @@ impl BlurringScene {
         gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, clamp as GLint);
     }
 
-    pub fn on_key(&mut self, keycode: NamedKey) {
-        let update_blur = match keycode {
-            NamedKey::ArrowUp => {
+    pub fn on_key(&mut self, keycode: Key<SmolStr>) {
+        match keycode {
+            Key::Named(NamedKey::ArrowUp) => {
                 self.kernel_size = (self.kernel_size + 1).min(64);
-                true
+                println!("blur kernel size (+): {}", self.kernel_size);
             }
-            NamedKey::ArrowDown => {
+            Key::Named(NamedKey::ArrowDown) => {
                 self.kernel_size = (self.kernel_size - 1).max(0);
-                true
+                println!("blur kernel size (-): {}", self.kernel_size);
             }
-            _ => false,
+            Key::Character(ch) => match ch.as_str() {
+                "k" | "K" => {
+                    self.is_kawase = !self.is_kawase;
+                    println!("kawase: {}", self.is_kawase);
+                }
+                _ => {}
+            },
+            _ => {}
         };
-
-        if update_blur {
-            println!("blur kernel size: {}", self.kernel_size);
-        }
     }
 
     pub fn draw(&mut self, _camera: &Camera, _mouse_pos: Vec2) {
@@ -365,9 +371,14 @@ impl BlurringScene {
                 gl::Clear(gl::COLOR_BUFFER_BIT);
                 gl::UseProgram(self.blur_shader);
 
-                // set blur direction to diagonal 1
                 gl::Uniform1i(self.u_kernel_size, self.kernel_size);
-                gl::Uniform2f(self.u_direction, blur_radcoord, blur_radcoord);
+                if self.is_kawase {
+                    // set blur direction to diagonal 1
+                    gl::Uniform2f(self.u_direction, blur_radcoord, blur_radcoord);
+                } else {
+                    // set blur direction to horizontal
+                    gl::Uniform2f(self.u_direction, 1.0, 0.0);
+                }
 
                 gl::BindVertexArray(self.comp_vao);
                 gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
@@ -392,9 +403,14 @@ impl BlurringScene {
                 gl::Clear(gl::COLOR_BUFFER_BIT);
                 gl::UseProgram(self.blur_shader);
 
-                // set blur direction to diagonal 2
                 gl::Uniform1i(self.u_kernel_size, self.kernel_size);
-                gl::Uniform2f(self.u_direction, blur_radcoord, -blur_radcoord);
+                if self.is_kawase {
+                    // set blur direction to diagonal 2
+                    gl::Uniform2f(self.u_direction, blur_radcoord, -blur_radcoord);
+                } else {
+                    // set blur direction to vertical
+                    gl::Uniform2f(self.u_direction, 0.0, 1.0);
+                }
 
                 gl::BindVertexArray(self.comp_vao);
                 gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);

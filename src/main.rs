@@ -278,7 +278,7 @@ impl ApplicationHandler for App {
             WindowEvent::KeyboardInput {
                 event:
                     KeyEvent {
-                        logical_key: Key::Named(named_key),
+                        ref logical_key,
                         state: ElementState::Pressed,
                         ..
                     },
@@ -286,8 +286,8 @@ impl ApplicationHandler for App {
             } => {
                 if let Some(AppState { window, .. }) = self.state.as_ref() {
                     let (scenes, _) = self.scenes.as_mut().unwrap();
-                    scenes.switch_scene(window, named_key);
-                    scenes.on_key(named_key);
+                    scenes.switch_scene(window, logical_key.clone());
+                    scenes.on_key(logical_key.clone());
                 }
             }
 
