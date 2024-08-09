@@ -44,8 +44,9 @@ pub struct BlurringScene {
 
     u_mvp_quad: GLint,
     u_direction: GLint,
+    u_kernel_size: GLint,
 
-    blur_radius: f32,
+    kernel_size: i32,
 
     indices: Vec<[u32; 6]>,
 
@@ -75,7 +76,6 @@ impl BlurringScene {
             (gura, gura_texture)
         };
 
-        let blur_radius = 1.0;
         let gura_size = vec2(gura.width() as f32, gura.height() as f32);
         let gura_fb_size = ivec2(gura.width() as i32, gura.height() as i32) / 4;
 
@@ -227,6 +227,7 @@ impl BlurringScene {
             // blur shader
             let blur_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_BLUR);
             let u_direction = gl::GetUniformLocation(blur_shader, c"u_direction".as_ptr());
+            let u_kernel_size = gl::GetUniformLocation(blur_shader, c"u_kernel_size".as_ptr());
 
             #[rustfmt::skip]
             {
@@ -264,8 +265,9 @@ impl BlurringScene {
 
                 u_mvp_quad,
                 u_direction,
+                u_kernel_size,
 
-                blur_radius,
+                kernel_size: 16,
 
                 indices,
 
@@ -302,18 +304,18 @@ impl BlurringScene {
     pub fn on_key(&mut self, keycode: NamedKey) {
         let update_blur = match keycode {
             NamedKey::ArrowUp => {
-                self.blur_radius = (self.blur_radius + 0.05).min(4.0);
+                self.kernel_size = (self.kernel_size + 1).min(64);
                 true
             }
             NamedKey::ArrowDown => {
-                self.blur_radius = (self.blur_radius - 0.05).max(0.0);
+                self.kernel_size = (self.kernel_size - 1).max(0);
                 true
             }
             _ => false,
         };
 
         if update_blur {
-            println!("blur radius: {}", self.blur_radius);
+            println!("blur kernel size: {}", self.kernel_size);
         }
     }
 
@@ -327,7 +329,8 @@ impl BlurringScene {
         unsafe {
             // Doing a Kawase blur! Using diagonals instead of X-Y.
             // Leads to much prettier result!
-            let blur_radcoord = self.blur_radius * (PI / 4.0).cos();
+
+            let blur_radcoord = (PI / 4.0).cos();
 
             // 1st pass: draw Gura to framebuffer
             {
@@ -363,6 +366,7 @@ impl BlurringScene {
                 gl::UseProgram(self.blur_shader);
 
                 // set blur direction to diagonal 1
+                gl::Uniform1i(self.u_kernel_size, self.kernel_size);
                 gl::Uniform2f(self.u_direction, blur_radcoord, blur_radcoord);
 
                 gl::BindVertexArray(self.comp_vao);
@@ -389,6 +393,7 @@ impl BlurringScene {
                 gl::UseProgram(self.blur_shader);
 
                 // set blur direction to diagonal 2
+                gl::Uniform1i(self.u_kernel_size, self.kernel_size);
                 gl::Uniform2f(self.u_direction, blur_radcoord, -blur_radcoord);
 
                 gl::BindVertexArray(self.comp_vao);
