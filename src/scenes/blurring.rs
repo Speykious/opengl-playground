@@ -17,8 +17,8 @@ const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("shaders/texture.frag");
 const SRC_VERT_SCREEN: &[u8] = include_bytes!("shaders/screen.vert");
 const SRC_FRAG_BLUR: &[u8] = include_bytes!("shaders/blur.frag");
 
-const GURA_JPG: &[u8] = include_bytes!("../../assets/gura.jpg");
-// const BIG_SQUARES_PNG: &[u8] = include_bytes!("../../assets/big-squares.png");
+// const GURA_JPG: &[u8] = include_bytes!("../../assets/gura.jpg");
+const BIG_SQUARES_PNG: &[u8] = include_bytes!("../../assets/big-squares.png");
 
 pub struct BlurringScene {
     matrix: Mat4,
@@ -47,6 +47,7 @@ pub struct BlurringScene {
     u_kernel_size: GLint,
 
     kernel_size: i32,
+    blur_radius: f32,
     is_kawase: bool,
 
     indices: Vec<[u32; 6]>,
@@ -61,8 +62,8 @@ impl BlurringScene {
 
         let (gura, gura_texture) = unsafe {
             // Gura texture
-            let gura = image::load_from_memory_with_format(GURA_JPG, ImageFormat::Jpeg);
-            // let gura = image::load_from_memory_with_format(BIG_SQUARES_PNG, ImageFormat::Png);
+            // let gura = image::load_from_memory_with_format(GURA_JPG, ImageFormat::Jpeg);
+            let gura = image::load_from_memory_with_format(BIG_SQUARES_PNG, ImageFormat::Png);
             let gura = gura.unwrap().into_rgba8();
 
             let mut gura_texture: GLuint = 0;
@@ -79,7 +80,7 @@ impl BlurringScene {
         };
 
         let gura_size = vec2(gura.width() as f32, gura.height() as f32);
-        let gura_fb_size = ivec2(gura.width() as i32, gura.height() as i32) / 4;
+        let gura_fb_size = ivec2(gura.width() as i32, gura.height() as i32) / 2;
 
         // They don't need to be vecs, but I'm too lazy to un-vector them now.
         let mut quads = Vec::with_capacity(1);
@@ -270,6 +271,7 @@ impl BlurringScene {
                 u_kernel_size,
 
                 kernel_size: 16,
+                blur_radius: 1.0,
                 is_kawase: false,
 
                 indices,
@@ -314,6 +316,14 @@ impl BlurringScene {
                 self.kernel_size = (self.kernel_size - 1).max(0);
                 println!("blur kernel size (-): {}", self.kernel_size);
             }
+            Key::Named(NamedKey::ArrowRight) => {
+                self.blur_radius = (self.blur_radius + 0.1).min(4.5);
+                println!("blur radius (+): {:.2}", self.blur_radius);
+            }
+            Key::Named(NamedKey::ArrowLeft) => {
+                self.blur_radius = (self.blur_radius - 0.1).max(0.0);
+                println!("blur radius (-): {:.2}", self.blur_radius);
+            }
             Key::Character(ch) => match ch.as_str() {
                 "k" | "K" => {
                     self.is_kawase = !self.is_kawase;
@@ -333,11 +343,6 @@ impl BlurringScene {
 
     fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
         unsafe {
-            // Doing a Kawase blur! Using diagonals instead of X-Y.
-            // Leads to much prettier result!
-
-            let blur_radcoord = (PI / 4.0).cos();
-
             // 1st pass: draw Gura to framebuffer
             {
                 gl::BindFramebuffer(gl::FRAMEBUFFER, self.comp_fbo);
@@ -362,68 +367,61 @@ impl BlurringScene {
                 gl::DrawArrays(gl::TRIANGLES, 0, 6);
             }
 
-            // 2nd pass: draw framebuffer to ping-pong framebuffer, with D1-blurring
-            {
-                gl::BindFramebuffer(gl::FRAMEBUFFER, self.ping_pong_fbo);
-                gl::Viewport(0, 0, self.gura_fb_size.x, self.gura_fb_size.y);
+            let angles: &[f32] = if self.is_kawase { &[PI / 4.0] } else { &[0.0] };
 
-                gl::ClearColor(0.0, 0.0, 0.0, 0.0);
-                gl::Clear(gl::COLOR_BUFFER_BIT);
-                gl::UseProgram(self.blur_shader);
+            for angle in angles {
+                // 2nd pass: draw framebuffer to ping-pong framebuffer, with X-blurring
+                {
+                    gl::BindFramebuffer(gl::FRAMEBUFFER, self.ping_pong_fbo);
+                    gl::Viewport(0, 0, self.gura_fb_size.x, self.gura_fb_size.y);
 
-                gl::Uniform1i(self.u_kernel_size, self.kernel_size);
-                if self.is_kawase {
-                    // set blur direction to diagonal 1
-                    gl::Uniform2f(self.u_direction, blur_radcoord, blur_radcoord);
-                } else {
-                    // set blur direction to horizontal
-                    gl::Uniform2f(self.u_direction, 1.0, 0.0);
+                    gl::ClearColor(0.0, 0.0, 0.0, 0.0);
+                    gl::Clear(gl::COLOR_BUFFER_BIT);
+                    gl::UseProgram(self.blur_shader);
+
+                    gl::Uniform1i(self.u_kernel_size, self.kernel_size);
+                    gl::Uniform2f(self.u_direction, angle.cos() * self.blur_radius, angle.sin() * self.blur_radius);
+
+                    gl::BindVertexArray(self.comp_vao);
+                    gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
+                    gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+                    gl::BufferSubData(
+                        gl::ARRAY_BUFFER,
+                        0,
+                        mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
+                        SCREEN_VERTICES.as_ptr() as *const _,
+                    );
+
+                    gl::BindTexture(gl::TEXTURE_2D, self.comp_texture);
+                    gl::DrawArrays(gl::TRIANGLES, 0, 6);
                 }
 
-                gl::BindVertexArray(self.comp_vao);
-                gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
-                gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
-                gl::BufferSubData(
-                    gl::ARRAY_BUFFER,
-                    0,
-                    mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
-                    SCREEN_VERTICES.as_ptr() as *const _,
-                );
+                // 3rd pass: draw ping-pong framebuffer to framebuffer, with Y-blurring
+                let angle = angle + PI / 2.0;
+                {
+                    gl::BindFramebuffer(gl::FRAMEBUFFER, self.comp_fbo);
+                    gl::Viewport(0, 0, self.gura_fb_size.x, self.gura_fb_size.y);
 
-                gl::BindTexture(gl::TEXTURE_2D, self.comp_texture);
-                gl::DrawArrays(gl::TRIANGLES, 0, 6);
-            }
+                    gl::ClearColor(0.0, 0.0, 0.0, 0.0);
+                    gl::Clear(gl::COLOR_BUFFER_BIT);
+                    gl::UseProgram(self.blur_shader);
 
-            // 2nd pass: draw ping-pong framebuffer to framebuffer, with D2-blurring
-            {
-                gl::BindFramebuffer(gl::FRAMEBUFFER, self.comp_fbo);
-                gl::Viewport(0, 0, self.gura_fb_size.x, self.gura_fb_size.y);
+                    gl::Uniform1i(self.u_kernel_size, self.kernel_size);
+                    gl::Uniform2f(self.u_direction, angle.cos() * self.blur_radius, angle.sin() * self.blur_radius);
 
-                gl::ClearColor(0.0, 0.0, 0.0, 0.0);
-                gl::Clear(gl::COLOR_BUFFER_BIT);
-                gl::UseProgram(self.blur_shader);
+                    gl::BindVertexArray(self.comp_vao);
+                    gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
+                    gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
+                    gl::BufferSubData(
+                        gl::ARRAY_BUFFER,
+                        0,
+                        mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
+                        SCREEN_VERTICES.as_ptr() as *const _,
+                    );
 
-                gl::Uniform1i(self.u_kernel_size, self.kernel_size);
-                if self.is_kawase {
-                    // set blur direction to diagonal 2
-                    gl::Uniform2f(self.u_direction, blur_radcoord, -blur_radcoord);
-                } else {
-                    // set blur direction to vertical
-                    gl::Uniform2f(self.u_direction, 0.0, 1.0);
+                    gl::BindTexture(gl::TEXTURE_2D, self.ping_pong_texture);
+                    gl::DrawArrays(gl::TRIANGLES, 0, 6);
                 }
-
-                gl::BindVertexArray(self.comp_vao);
-                gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
-                gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
-                gl::BufferSubData(
-                    gl::ARRAY_BUFFER,
-                    0,
-                    mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
-                    SCREEN_VERTICES.as_ptr() as *const _,
-                );
-
-                gl::BindTexture(gl::TEXTURE_2D, self.ping_pong_texture);
-                gl::DrawArrays(gl::TRIANGLES, 0, 6);
             }
 
             // 3rd pass: draw framebuffer to screen as quad
