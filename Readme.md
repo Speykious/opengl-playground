@@ -17,11 +17,14 @@ Relevant articles:
 - [Scale space implementation > The sampled Gaussian kernel](<https://en.wikipedia.org/wiki/Scale_space_implementation#The_sampled_Gaussian_kernel>)
 - [Removing Banding In Linelight](<https://pixelmager.github.io/linelight/banding.html>)
 - [Bandwidth-Efficient Rendering (Kawase blur)](<https://community.arm.com/cfs-file/__key/communityserver-blogs-components-weblogfiles/00-00-00-20-66/siggraph2015_2D00_mmg_2D00_marius_2D00_notes.pdf>)
-  > I realized my diagonal sampling wasn't a kawase blur to begin with. I'll probably change that later.
+  > I haven't implemented a kawase blur, but the illustrations for recursively downsampling and upsampling in this document are nice and helpful.
 
 Keybinds:
-- `K` - Toggle diagonally sampled blur (mistakenly named "kawase", will probably change that later)
+- `/` - Toggle diagonally sampled blur
+- `D` - Toggle dithering
 - `↑` - Increment blur kernel size
 - `↓` - Decrement blur kernel size
 - `→` - Increase blur radius
 - `←` - Decrease blur radius
+- `L` - Increase blur layers count
+- `⇧L` - Decrease blur layers count
