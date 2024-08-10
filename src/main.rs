@@ -3,6 +3,7 @@ use std::{
     ffi::{c_void, CStr, CString},
     num::NonZeroU32,
     rc::Rc,
+    sync::atomic::Ordering,
 };
 
 use gl::types::{GLchar, GLenum, GLsizei, GLuint};
@@ -200,6 +201,8 @@ impl ApplicationHandler for App {
                 println!("Debug ext:   supported\n");
                 gl::DebugMessageCallback(Some(debug_message_callback), std::ptr::null());
                 gl::Enable(gl::DEBUG_OUTPUT);
+
+                scenes::DEBUG_ENABLED.store(true, Ordering::Relaxed);
             } else {
                 println!("Debug ext:   unsupported\n");
             }
@@ -384,7 +387,7 @@ unsafe fn get_opengl_extensions() -> HashSet<String> {
 }
 
 extern "system" fn debug_message_callback(
-    _src: GLenum,
+    src: GLenum,
     ty: GLenum,
     _id: GLuint,
     sevr: GLenum,
@@ -408,7 +411,11 @@ extern "system" fn debug_message_callback(
     let msg = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
 
     match sevr {
-        gl::DEBUG_SEVERITY_NOTIFICATION => println!("[opengl debug] {ty}{msg}"),
+        gl::DEBUG_SEVERITY_NOTIFICATION => {
+            if src != gl::DEBUG_SOURCE_APPLICATION {
+                println!("[opengl debug] {ty}{msg}")
+            }
+        }
         gl::DEBUG_SEVERITY_LOW => println!("[opengl  info] {ty}{msg}"),
         gl::DEBUG_SEVERITY_MEDIUM => println!("[opengl  warn] {ty}{msg}"),
         gl::DEBUG_SEVERITY_HIGH => println!("[opengl error] {ty}{msg}"),

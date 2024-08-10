@@ -4,7 +4,7 @@ use std::{
     time::Instant,
 };
 
-use gl::types::{GLfloat, GLsizei, GLsizeiptr, GLuint};
+use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use glam::{vec2, Mat4, Vec2, Vec4};
 use rand::Rng;
 use winit::window::Window;
@@ -27,7 +27,7 @@ pub struct RoundQuadsScene {
     vbo: GLuint,
     ebo: GLuint,
 
-    u_mvp_quad: i32,
+    u_mvp_quad: GLint,
 
     quads: Vec<Quad>,
     vertices: Vec<[Vertex; 4]>,
@@ -251,8 +251,10 @@ impl Drop for RoundQuadsScene {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteProgram(self.round_rect_shader);
-            gl::DeleteBuffers(1, &self.vbo);
             gl::DeleteVertexArrays(1, &self.vao);
+
+            let buffers = &[self.vbo, self.ebo];
+            gl::DeleteBuffers(1, buffers.as_ptr());
         }
     }
 }

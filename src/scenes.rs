@@ -1,29 +1,37 @@
 pub mod blurring;
+pub mod kawase;
 pub mod round_quads;
 
+use std::ffi::CStr;
+use std::sync::atomic::{AtomicBool, Ordering};
+
 use blurring::BlurringScene;
-use gl::types::GLuint;
-use glam::Vec2;
+use kawase::KawaseScene;
 use round_quads::RoundQuadsScene;
+
+use gl::types::{GLchar, GLuint};
+use glam::Vec2;
 use winit::keyboard::{Key, NamedKey, SmolStr};
 use winit::window::Window;
 
 use crate::camera::Camera;
 
 pub enum Scenes {
-    Blurring(BlurringScene),
     RoundQuads(RoundQuadsScene),
+    Blurring(BlurringScene),
+    Kawase(KawaseScene),
 }
 
 impl Scenes {
     pub fn new(window: &Window) -> Self {
-        Self::Blurring(BlurringScene::new(window))
+        Self::Kawase(KawaseScene::new(window))
     }
 
     pub fn switch_scene(&mut self, window: &Window, keycode: Key<SmolStr>) {
         match keycode {
             Key::Named(NamedKey::F1) => *self = Self::RoundQuads(RoundQuadsScene::new(window)),
             Key::Named(NamedKey::F2) => *self = Self::Blurring(BlurringScene::new(window)),
+            Key::Named(NamedKey::F3) => *self = Self::Kawase(KawaseScene::new(window)),
             _ => (),
         }
     }
@@ -32,6 +40,7 @@ impl Scenes {
         match self {
             Self::RoundQuads(_) => {}
             Self::Blurring(scene) => scene.on_key(keycode),
+            Self::Kawase(scene) => scene.on_key(keycode),
         }
     }
 
@@ -39,6 +48,7 @@ impl Scenes {
         match self {
             Self::RoundQuads(scene) => scene.draw(camera, mouse_pos),
             Self::Blurring(scene) => scene.draw(camera, mouse_pos),
+            Self::Kawase(scene) => scene.draw(camera, mouse_pos),
         }
     }
 
@@ -46,6 +56,7 @@ impl Scenes {
         match self {
             Self::RoundQuads(scene) => scene.resize(camera, width, height),
             Self::Blurring(scene) => scene.resize(camera, width, height),
+            Self::Kawase(scene) => scene.resize(camera, width, height),
         }
     }
 }
@@ -120,5 +131,25 @@ unsafe fn verify_program(shader: GLuint) {
 
             eprintln!("PROGRAM LINK ERROR: {log}");
         }
+    }
+}
+
+// Set in main when checking for the GL_KHR_debug extension.
+pub static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
+
+unsafe fn push_debug_group(message: &CStr) {
+    if DEBUG_ENABLED.load(Ordering::Relaxed) {
+        gl::PushDebugGroup(
+            gl::DEBUG_SOURCE_APPLICATION,
+            0,
+            message.count_bytes() as i32,
+            message.as_ptr() as *const GLchar,
+        );
+    }
+}
+
+unsafe fn pop_debug_group() {
+    if DEBUG_ENABLED.load(Ordering::Relaxed) {
+        gl::PopDebugGroup();
     }
 }

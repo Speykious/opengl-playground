@@ -3,7 +3,7 @@
 uniform vec2 u_direction;
 uniform int u_kernel_size;
 
-uniform sampler2D u_screen_texture;
+uniform sampler2D u_tex;
 
 in vec2 v_uv;
 
@@ -52,8 +52,8 @@ vec4 blur(in sampler2D image, in vec2 direction, in vec2 uv) {
 
 void main() {
     if (u_kernel_size <= 2) {
-        FragColor = texture(u_screen_texture, v_uv);
+        FragColor = texture(u_tex, v_uv);
     } else {
-        FragColor = blur(u_screen_texture, u_direction, v_uv);
+        FragColor = blur(u_tex, u_direction, v_uv);
     }
 }

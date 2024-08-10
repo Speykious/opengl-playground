@@ -1,4 +1,3 @@
-use std::f32::consts::PI;
 use std::{mem, time::Instant};
 
 use gl::types::{GLenum, GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
@@ -9,29 +8,27 @@ use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::camera::Camera;
 
-use super::create_shader_program;
+use super::{create_shader_program, pop_debug_group, push_debug_group};
 
 const SRC_VERT_QUAD: &[u8] = include_bytes!("shaders/quad.vert");
 const SRC_VERT_SCREEN: &[u8] = include_bytes!("shaders/screen.vert");
 
 const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("shaders/texture.frag");
-const SRC_FRAG_BLUR: &[u8] = include_bytes!("shaders/blur.frag");
+const SRC_FRAG_KAWASE: &[u8] = include_bytes!("shaders/kawase.frag");
 const SRC_FRAG_DITHER: &[u8] = include_bytes!("shaders/dither.frag");
 
 const GURA_JPG: &[u8] = include_bytes!("../../assets/gura.jpg");
 // const BIG_SQUARES_PNG: &[u8] = include_bytes!("../../assets/big-squares.png");
 
-const RESDIVS: &[u32] = &[2, 4, 8, 16, 32, 64];
+const RESDIVS: &[u32] = &[2, 4, 8, 16, 32];
+const KAWASE_DISTANCES: &[f32; 5] = &[0.5, 1.5, 2.5, 2.5, 3.5];
 
 struct BlurParams {
-    pub kernel: i32,
     pub radius: f32,
-    pub layers: usize,
-    pub is_diagonal: bool,
     pub is_dithered: bool,
 }
 
-pub struct BlurringScene {
+pub struct KawaseScene {
     matrix: Mat4,
     viewport: Vec2,
 
@@ -40,19 +37,19 @@ pub struct BlurringScene {
     quad_vbo: GLuint,
     quad_ebo: GLuint,
 
-    composite_fbs: Vec<(Framebuffer, Framebuffer)>,
+    composite_fbs: Vec<Framebuffer>,
     comp_vao: GLuint,
     comp_vbo: GLuint,
     comp_shader: GLuint,
-    blur_shader: GLuint,
+    kawase_shader: GLuint,
     dither_shader: GLuint,
 
     gura_texture: GLuint,
 
     u_mvp_quad: GLint,
     u_mvp_dither: GLint,
-    u_direction: GLint,
-    u_kernel_size: GLint,
+    u_distance: GLint,
+    u_upsample: GLint,
 
     blur: BlurParams,
 
@@ -61,7 +58,7 @@ pub struct BlurringScene {
     last_instant: Instant,
 }
 
-impl BlurringScene {
+impl KawaseScene {
     pub fn new(window: &Window) -> Self {
         let PhysicalSize { width, height } = window.inner_size();
         let viewport = Vec2::new(width as f32, height as f32);
@@ -108,12 +105,7 @@ impl BlurringScene {
 
             // framebuffers
             let composite_fbs = (RESDIVS.iter().copied())
-                .map(|resdiv| {
-                    (
-                        Self::create_framebuffer("composite", gura_size / resdiv),
-                        Self::create_framebuffer("ping_pong", gura_size / resdiv),
-                    )
-                })
+                .map(|resdiv| Self::create_framebuffer("composite", gura_size / resdiv))
                 .collect::<Vec<_>>();
 
             gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
@@ -171,17 +163,14 @@ impl BlurringScene {
             let comp_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_TEXTURE);
             Self::set_pos_uv_vertex_attribs(comp_shader);
 
-            let blur_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_BLUR);
-            let u_direction = gl::GetUniformLocation(blur_shader, c"u_direction".as_ptr());
-            let u_kernel_size = gl::GetUniformLocation(blur_shader, c"u_kernel_size".as_ptr());
-            Self::set_pos_uv_vertex_attribs(blur_shader);
+            let kawase_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_KAWASE);
+            let u_distance = gl::GetUniformLocation(kawase_shader, c"u_distance".as_ptr());
+            let u_upsample = gl::GetUniformLocation(kawase_shader, c"u_upsample".as_ptr());
+            Self::set_pos_uv_vertex_attribs(kawase_shader);
 
             // default blur parameters
             let blur = BlurParams {
-                kernel: 5,
-                layers: 4,
-                radius: 2.0,
-                is_diagonal: false,
+                radius: 1.0,
                 is_dithered: false,
             };
 
@@ -198,15 +187,15 @@ impl BlurringScene {
                 comp_vao,
                 comp_vbo,
                 comp_shader,
-                blur_shader,
+                kawase_shader,
                 dither_shader,
 
                 gura_texture,
 
                 u_mvp_quad,
                 u_mvp_dither,
-                u_direction,
-                u_kernel_size,
+                u_distance,
+                u_upsample,
 
                 blur,
 
@@ -287,41 +276,20 @@ impl BlurringScene {
 
     pub fn on_key(&mut self, keycode: Key<SmolStr>) {
         match keycode {
-            Key::Named(NamedKey::ArrowUp) => {
-                self.blur.kernel = (self.blur.kernel + 1).min(64);
-            }
-            Key::Named(NamedKey::ArrowDown) => {
-                self.blur.kernel = (self.blur.kernel - 1).max(0);
-            }
             Key::Named(NamedKey::ArrowRight) => {
                 self.blur.radius =
                     (self.blur.radius + 0.1).min(*RESDIVS.last().unwrap() as f32 / 2.0);
             }
             Key::Named(NamedKey::ArrowLeft) => {
-                self.blur.radius = (self.blur.radius - 0.1).max(0.0);
+                self.blur.radius = (self.blur.radius - 0.1).max(0.2);
             }
             Key::Character(ch) => match ch.as_str() {
                 "d" | "D" => {
                     self.blur.is_dithered = !self.blur.is_dithered;
                 }
-                "/" => {
-                    self.blur.is_diagonal = !self.blur.is_diagonal;
-                }
-                "l" => {
-                    self.blur.layers = (self.blur.layers + 1).min(RESDIVS.len());
-                }
-                "L" => {
-                    self.blur.layers = self.blur.layers.saturating_sub(1);
-                }
                 _ => return,
             },
             _ => return,
-        };
-
-        let mode = if self.blur.is_diagonal {
-            "diagonal"
-        } else {
-            "vert/horz"
         };
 
         let dither_mode = if self.blur.is_dithered {
@@ -330,10 +298,7 @@ impl BlurringScene {
             ""
         };
 
-        println!(
-            "blur config: k={} r={:.2} l={} {}{}",
-            self.blur.kernel, self.blur.radius, self.blur.layers, mode, dither_mode
-        );
+        println!("kawase config: r={:.2} {}", self.blur.radius, dither_mode);
     }
 
     pub fn draw(&mut self, _camera: &Camera, _mouse_pos: Vec2) {
@@ -344,12 +309,13 @@ impl BlurringScene {
 
     fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
         unsafe {
-            let texture = if self.blur.layers == 0 {
-                self.gura_texture
-            } else {
-                let mut input_fb = &self.composite_fbs[0].0;
+            let texture = {
+                push_debug_group(c"Draw with blurring");
+
+                let mut input_fb = &self.composite_fbs[0];
 
                 // draw Gura to framebuffer
+                push_debug_group(c"Gura to framebuffer");
                 {
                     gl::BindFramebuffer(gl::FRAMEBUFFER, input_fb.fbo);
                     gl::Viewport(0, 0, input_fb.size.x as i32, input_fb.size.y as i32);
@@ -372,45 +338,36 @@ impl BlurringScene {
                     gl::ActiveTexture(gl::TEXTURE0);
                     gl::DrawArrays(gl::TRIANGLES, 0, 6);
                 }
-
-                let angles: &[f32] = if self.blur.is_diagonal {
-                    &[PI / 4.0]
-                } else {
-                    &[0.0]
-                };
+                pop_debug_group();
 
                 // blur at half-resolution, then quarter-res, then eighth-res, ...
-                for fbi in 0..self.blur.layers {
+                push_debug_group(c"Kawase downsampling");
+                #[allow(clippy::needless_range_loop)]
+                for fbi in 1..5 {
                     // FBI OPEN UP
 
-                    for angle in angles {
-                        input_fb = self.ping_pong_blur_pass(
-                            *angle,
-                            input_fb,
-                            &self.composite_fbs[fbi].0,
-                            &self.composite_fbs[fbi].1,
-                        );
-                    }
+                    let output_fb = &self.composite_fbs[fbi];
+                    let distance = KAWASE_DISTANCES[fbi] * self.blur.radius;
+                    input_fb = self.kawase_pass(distance, false, input_fb, output_fb);
                 }
+                pop_debug_group();
 
                 // ..., then eighth-res, then quarter-res, then half-resolution
-                for fbi in (0..(self.blur.layers - 1)).rev() {
+                push_debug_group(c"Kawase upsampling");
+                for fbi in (0..4).rev() {
                     // FBI OPEN UP
 
-                    for angle in angles {
-                        input_fb = self.ping_pong_blur_pass(
-                            *angle,
-                            input_fb,
-                            &self.composite_fbs[fbi].0,
-                            &self.composite_fbs[fbi].1,
-                        );
-                    }
+                    let output_fb = &self.composite_fbs[fbi];
+                    let distance = KAWASE_DISTANCES[fbi] * self.blur.radius;
+                    input_fb = self.kawase_pass(distance, true, input_fb, output_fb);
                 }
+                pop_debug_group();
 
                 input_fb.texture
             };
 
             // draw framebuffer to screen as quad
+            push_debug_group(c"Final draw to quad");
             {
                 gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
                 gl::Viewport(0, 0, self.viewport.x as i32, self.viewport.y as i32);
@@ -435,31 +392,31 @@ impl BlurringScene {
                     std::ptr::null(),
                 );
             }
+            pop_debug_group();
+
+            pop_debug_group(); // Draw normally / with blurring
         }
     }
 
-    fn ping_pong_blur_pass<'a>(
+    fn kawase_pass<'a>(
         &self,
-        angle: f32,
+        distance: f32,
+        upsample: bool,
         from_fb: &Framebuffer,
-        composite_fb: &'a Framebuffer,
-        ping_pong_fb: &Framebuffer,
+        to_fb: &'a Framebuffer,
     ) -> &'a Framebuffer {
-        // draw framebuffer to ping-pong framebuffer, with X-blurring
         unsafe {
-            gl::BindFramebuffer(gl::FRAMEBUFFER, ping_pong_fb.fbo);
-            gl::Viewport(0, 0, ping_pong_fb.size.x as i32, ping_pong_fb.size.y as i32);
+            push_debug_group(c"Kawase pass");
+
+            gl::BindFramebuffer(gl::FRAMEBUFFER, to_fb.fbo);
+            gl::Viewport(0, 0, to_fb.size.x as i32, to_fb.size.y as i32);
 
             gl::ClearColor(0.0, 0.0, 0.0, 0.0);
             gl::Clear(gl::COLOR_BUFFER_BIT);
-            gl::UseProgram(self.blur_shader);
+            gl::UseProgram(self.kawase_shader);
 
-            gl::Uniform1i(self.u_kernel_size, self.blur.kernel);
-            gl::Uniform2f(
-                self.u_direction,
-                angle.cos() * self.blur.radius,
-                angle.sin() * self.blur.radius,
-            );
+            gl::Uniform1f(self.u_distance, distance);
+            gl::Uniform1i(self.u_upsample, upsample as i32);
 
             gl::BindVertexArray(self.comp_vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
@@ -473,40 +430,11 @@ impl BlurringScene {
 
             gl::BindTexture(gl::TEXTURE_2D, from_fb.texture);
             gl::DrawArrays(gl::TRIANGLES, 0, 6);
+
+            pop_debug_group();
         }
 
-        // draw ping-pong framebuffer to framebuffer, with Y-blurring
-        let angle = angle + PI / 2.0;
-        unsafe {
-            gl::BindFramebuffer(gl::FRAMEBUFFER, composite_fb.fbo);
-            gl::Viewport(0, 0, composite_fb.size.x as i32, composite_fb.size.y as i32);
-
-            gl::ClearColor(0.0, 0.0, 0.0, 0.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-            gl::UseProgram(self.blur_shader);
-
-            gl::Uniform1i(self.u_kernel_size, self.blur.kernel);
-            gl::Uniform2f(
-                self.u_direction,
-                angle.cos() * self.blur.radius,
-                angle.sin() * self.blur.radius,
-            );
-
-            gl::BindVertexArray(self.comp_vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
-            gl::BufferSubData(
-                gl::ARRAY_BUFFER,
-                0,
-                mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
-                SCREEN_VERTICES.as_ptr() as *const _,
-            );
-
-            gl::BindTexture(gl::TEXTURE_2D, ping_pong_fb.texture);
-            gl::DrawArrays(gl::TRIANGLES, 0, 6);
-        }
-
-        composite_fb
+        to_fb
     }
 
     pub fn resize(&mut self, camera: &Camera, width: i32, height: i32) {
@@ -530,20 +458,17 @@ impl BlurringScene {
     }
 }
 
-impl Drop for BlurringScene {
+impl Drop for KawaseScene {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteProgram(self.quad_shader);
             gl::DeleteProgram(self.comp_shader);
-            gl::DeleteProgram(self.blur_shader);
+            gl::DeleteProgram(self.kawase_shader);
             gl::DeleteProgram(self.dither_shader);
 
             for comp_fb in &self.composite_fbs {
-                let fbs = &[comp_fb.0.fbo, comp_fb.1.fbo];
-                gl::DeleteFramebuffers(fbs.len() as GLsizei, fbs.as_ptr());
-
-                let textures = &[comp_fb.0.texture, comp_fb.1.texture];
-                gl::DeleteTextures(textures.len() as GLsizei, textures.as_ptr());
+                gl::DeleteFramebuffers(1, &comp_fb.fbo);
+                gl::DeleteTextures(1, &comp_fb.texture);
             }
 
             let buffers = &[self.quad_vbo, self.quad_ebo, self.comp_vbo];
