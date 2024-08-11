@@ -13,6 +13,8 @@ Run it with `cargo run`.
   </figure>
 </div>
 
+&nbsp;
+
 Tons of randomly styled rounded rectangles, spinning faster the closer they are to the mouse.
 
 ### `F2` Blurring
@@ -23,6 +25,8 @@ Tons of randomly styled rounded rectangles, spinning faster the closer they are 
     <figcaption align="center"><i>Gaussian blur with kernel 5, radius 2 and 4 downsampling layers (no color dithering)</i></figcaption>
   </figure>
 </div>
+
+&nbsp;
 
 An image of Gawr Gura being blurred.
 The blur technique used is sampled Gaussian blur, with recursive downsampling and color dithering.
@@ -51,6 +55,8 @@ Keybinds:
     <figcaption align="center"><i>Kawase-derived Dual-filter blur with radius 2 and 4 downsampling layers (no color dithering)</i></figcaption>
   </figure>
 </div>
+
+&nbsp;
 
 An image of Gawr Gura being blurred.
 The blur technique used is Dual Filtering, derived from the Kawase blur, with recursive downsampling and color dithering.
