@@ -1,6 +1,10 @@
-# Just some random OpenGL playground
+# OpenGL playground
 
-Run it with `cargo run`.
+This is my personal playground to learn and experiment with low-level graphics programming stuff in OpenGL.
+
+It runs with OpenGL >=3.3 on Windows, Linux and MacOS.
+
+You can just run it with `cargo run`.
 
 ## Scenes
 

@@ -41,7 +41,7 @@ fn main() {
         WindowAttributes::default()
             .with_active(true)
             .with_theme(Some(Theme::Dark))
-            .with_title("OpenGL Squares")
+            .with_title("OpenGL Playground")
             .with_resizable(true),
     );
 
