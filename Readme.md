@@ -6,9 +6,23 @@ Run it with `cargo run`.
 
 ### `F1` Round Quads
 
+<div align="center">
+  <figure align="center">
+    <img  align="center" src="https://fs.speykious.dev/opengl-squares/round-rects.png" alt="Round rects" />
+    <figcaption align="center"><i>Round quads scene</i></figcaption>
+  </figure>
+</div>
+
 Tons of randomly styled rounded rectangles, spinning faster the closer they are to the mouse.
 
 ### `F2` Blurring
+
+<div align="center">
+  <figure align="center">
+    <img  align="center" src="https://fs.speykious.dev/opengl-squares/blur-gaussian-k5r2l4.png" alt="Blurring scene" />
+    <figcaption align="center"><i>Gaussian blur with kernel 5, radius 2 and 4 downsampling layers (no color dithering)</i></figcaption>
+  </figure>
+</div>
 
 An image of Gawr Gura being blurred.
 The blur technique used is sampled Gaussian blur, with recursive downsampling and color dithering.
@@ -31,9 +45,17 @@ Keybinds:
 
 ### `F3` Kawase Blur
 
+<div align="center">
+  <figure align="center">
+    <img  align="center" src="https://fs.speykious.dev/opengl-squares/blur-kawase-r2l4.png" alt="Kawase Blur scene" />
+    <figcaption align="center"><i>Kawase-derived Dual-filter blur with radius 2 and 4 downsampling layers (no color dithering)</i></figcaption>
+  </figure>
+</div>
+
 An image of Gawr Gura being blurred.
 The blur technique used is Dual Filtering, derived from the Kawase blur, with recursive downsampling and color dithering.
 
+Relevant articles:
 - [Removing Banding In Linelight][removing-banding-in-linelight]
 - [An investigation of fast real-time GPU-based image blur algorithms][investigation-blur-algorithms]
 - [Bandwidth-Efficient Rendering (Kawase blur)][bandwidth-efficient-rendering]
