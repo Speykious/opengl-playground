@@ -32,7 +32,7 @@ Keybinds:
 ### `F3` Kawase Blur
 
 An image of Gawr Gura being blurred.
-The blur technique used is Kawase blur, with recursive downsampling and color dithering.
+The blur technique used is Dual Filtering, derived from the Kawase blur, with recursive downsampling and color dithering.
 
 - [Removing Banding In Linelight][removing-banding-in-linelight]
 - [An investigation of fast real-time GPU-based image blur algorithms][investigation-blur-algorithms]
@@ -47,3 +47,5 @@ Keybinds:
 - `D` - Toggle dithering
 - `→` - Increase kawase distance
 - `←` - Decrease kawase distance
+- `L` - Increase blur layers count
+- `⇧L` - Decrease blur layers count

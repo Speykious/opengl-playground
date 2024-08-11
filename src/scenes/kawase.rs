@@ -20,11 +20,11 @@ const SRC_FRAG_DITHER: &[u8] = include_bytes!("shaders/dither.frag");
 const GURA_JPG: &[u8] = include_bytes!("../../assets/gura.jpg");
 // const BIG_SQUARES_PNG: &[u8] = include_bytes!("../../assets/big-squares.png");
 
-const RESDIVS: &[u32] = &[2, 4, 8, 16, 32];
-const KAWASE_DISTANCES: &[f32; 5] = &[0.5, 1.5, 2.5, 2.5, 3.5];
+const RESDIVS: &[u32] = &[2, 4, 8, 16, 32, 64];
 
 struct BlurParams {
     pub radius: f32,
+    pub layers: usize,
     pub is_dithered: bool,
 }
 
@@ -171,6 +171,7 @@ impl KawaseScene {
             // default blur parameters
             let blur = BlurParams {
                 radius: 1.0,
+                layers: 1,
                 is_dithered: false,
             };
 
@@ -287,6 +288,12 @@ impl KawaseScene {
                 "d" | "D" => {
                     self.blur.is_dithered = !self.blur.is_dithered;
                 }
+                "l" => {
+                    self.blur.layers = (self.blur.layers + 1).min(5);
+                }
+                "L" => {
+                    self.blur.layers = self.blur.layers.saturating_sub(1);
+                }
                 _ => return,
             },
             _ => return,
@@ -298,7 +305,7 @@ impl KawaseScene {
             ""
         };
 
-        println!("kawase config: r={:.2} {}", self.blur.radius, dither_mode);
+        println!("kawase config: r={:.2} l={} {}", self.blur.radius, self.blur.layers, dither_mode);
     }
 
     pub fn draw(&mut self, _camera: &Camera, _mouse_pos: Vec2) {
@@ -309,7 +316,11 @@ impl KawaseScene {
 
     fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
         unsafe {
-            let texture = {
+            let texture = if self.blur.layers == 0 {
+                push_debug_group(c"Draw normally");
+
+                self.gura_texture
+            } else {
                 push_debug_group(c"Draw with blurring");
 
                 let mut input_fb = &self.composite_fbs[0];
@@ -343,22 +354,22 @@ impl KawaseScene {
                 // blur at half-resolution, then quarter-res, then eighth-res, ...
                 push_debug_group(c"Kawase downsampling");
                 #[allow(clippy::needless_range_loop)]
-                for fbi in 1..5 {
+                for fbi in 1..=self.blur.layers {
                     // FBI OPEN UP
 
                     let output_fb = &self.composite_fbs[fbi];
-                    let distance = KAWASE_DISTANCES[fbi] * self.blur.radius;
+                    let distance = self.blur.radius;
                     input_fb = self.kawase_pass(distance, false, input_fb, output_fb);
                 }
                 pop_debug_group();
 
                 // ..., then eighth-res, then quarter-res, then half-resolution
                 push_debug_group(c"Kawase upsampling");
-                for fbi in (0..4).rev() {
+                for fbi in (0..self.blur.layers).rev() {
                     // FBI OPEN UP
 
                     let output_fb = &self.composite_fbs[fbi];
-                    let distance = KAWASE_DISTANCES[fbi] * self.blur.radius;
+                    let distance = self.blur.radius * 0.5;
                     input_fb = self.kawase_pass(distance, true, input_fb, output_fb);
                 }
                 pop_debug_group();
