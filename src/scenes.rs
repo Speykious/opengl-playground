@@ -2,19 +2,29 @@ pub mod blurring;
 pub mod kawase;
 pub mod round_quads;
 
-use std::ffi::CStr;
-use std::sync::atomic::{AtomicBool, Ordering};
-
 use blurring::BlurringScene;
 use kawase::KawaseScene;
 use round_quads::RoundQuadsScene;
 
-use gl::types::{GLchar, GLuint};
 use glam::Vec2;
 use winit::keyboard::{Key, NamedKey, SmolStr};
 use winit::window::Window;
 
 use crate::camera::Camera;
+
+// shaders
+const SRC_FRAG_BLUR: &[u8] = include_bytes!("../assets/shaders/blur.frag");
+const SRC_FRAG_DITHER: &[u8] = include_bytes!("../assets/shaders/dither.frag");
+const SRC_FRAG_KAWASE: &[u8] = include_bytes!("../assets/shaders/kawase.frag");
+const SRC_VERT_QUAD: &[u8] = include_bytes!("../assets/shaders/quad.vert");
+const SRC_VERT_ROUND_RECT: &[u8] = include_bytes!("../assets/shaders/round-rect.vert");
+const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("../assets/shaders/round-rect.frag");
+const SRC_VERT_SCREEN: &[u8] = include_bytes!("../assets/shaders/screen.vert");
+const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("../assets/shaders/texture.frag");
+
+// images
+const GURA_JPG: &[u8] = include_bytes!("../assets/gura.jpg");
+// const BIG_SQUARES_PNG: &[u8] = include_bytes!("../../assets/big-squares.png");
 
 pub enum Scenes {
     RoundQuads(RoundQuadsScene),
@@ -58,98 +68,5 @@ impl Scenes {
             Self::Blurring(scene) => scene.resize(camera, width, height),
             Self::Kawase(scene) => scene.resize(camera, width, height),
         }
-    }
-}
-
-unsafe fn create_shader_program(vert_source: &[u8], frag_source: &[u8]) -> GLuint {
-    let vert_shader = gl::CreateShader(gl::VERTEX_SHADER);
-    {
-        let length = vert_source.len() as i32;
-        let source = vert_source.as_ptr() as *const i8;
-        gl::ShaderSource(vert_shader, 1, &source, &length);
-        gl::CompileShader(vert_shader);
-    }
-    verify_shader(vert_shader, "vert");
-
-    let frag_shader = gl::CreateShader(gl::FRAGMENT_SHADER);
-    {
-        let length = frag_source.len() as i32;
-        let source = frag_source.as_ptr() as *const i8;
-        gl::ShaderSource(frag_shader, 1, &source, &length);
-        gl::CompileShader(frag_shader);
-    }
-    verify_shader(frag_shader, "frag");
-
-    let program = gl::CreateProgram();
-    {
-        gl::AttachShader(program, vert_shader);
-        gl::AttachShader(program, frag_shader);
-
-        gl::LinkProgram(program);
-        gl::UseProgram(program);
-
-        gl::DeleteShader(vert_shader);
-        gl::DeleteShader(frag_shader);
-    }
-    verify_program(program);
-
-    program
-}
-
-unsafe fn verify_shader(shader: GLuint, ty: &str) {
-    let mut status = 0;
-    gl::GetShaderiv(shader, gl::COMPILE_STATUS, &mut status);
-
-    if status != 1 {
-        let mut length = 0;
-        gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut length);
-
-        if length > 0 {
-            let mut log = String::with_capacity(length as usize);
-            log.extend(std::iter::repeat('\0').take(length as usize));
-            gl::GetShaderInfoLog(shader, length, &mut length, log.as_str().as_ptr() as *mut _);
-            log.truncate(length as usize);
-
-            eprintln!("SHADER COMPILE ERROR ({ty}): {log}");
-        }
-    }
-}
-
-unsafe fn verify_program(shader: GLuint) {
-    let mut status = 0;
-    gl::GetShaderiv(shader, gl::LINK_STATUS, &mut status);
-
-    if status != 1 {
-        let mut length = 0;
-        gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut length);
-
-        if length > 0 {
-            let mut log = String::with_capacity(length as usize);
-            log.extend(std::iter::repeat('\0').take(length as usize));
-            gl::GetProgramInfoLog(shader, length, &mut length, log.as_str().as_ptr() as *mut _);
-            log.truncate(length as usize);
-
-            eprintln!("PROGRAM LINK ERROR: {log}");
-        }
-    }
-}
-
-// Set in main when checking for the GL_KHR_debug extension.
-pub static DEBUG_ENABLED: AtomicBool = AtomicBool::new(false);
-
-unsafe fn push_debug_group(message: &CStr) {
-    if DEBUG_ENABLED.load(Ordering::Relaxed) {
-        gl::PushDebugGroup(
-            gl::DEBUG_SOURCE_APPLICATION,
-            0,
-            message.count_bytes() as i32,
-            message.as_ptr() as *const GLchar,
-        );
-    }
-}
-
-unsafe fn pop_debug_group() {
-    if DEBUG_ENABLED.load(Ordering::Relaxed) {
-        gl::PopDebugGroup();
     }
 }

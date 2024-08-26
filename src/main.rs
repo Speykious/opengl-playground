@@ -30,6 +30,7 @@ use winit::{
 };
 
 pub mod camera;
+pub mod common_gl;
 pub mod scene_controller;
 pub mod scenes;
 
@@ -202,7 +203,7 @@ impl ApplicationHandler for App {
                 gl::DebugMessageCallback(Some(debug_message_callback), std::ptr::null());
                 gl::Enable(gl::DEBUG_OUTPUT);
 
-                scenes::DEBUG_ENABLED.store(true, Ordering::Relaxed);
+                common_gl::DEBUG_ENABLED.store(true, Ordering::Relaxed);
             } else {
                 println!("Debug ext:   unsupported\n");
             }

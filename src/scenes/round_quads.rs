@@ -9,14 +9,11 @@ use glam::{vec2, Mat4, Vec2, Vec4};
 use rand::Rng;
 use winit::window::Window;
 
-use crate::camera::Camera;
+use crate::{camera::Camera, common_gl::create_shader_program};
 
-use super::create_shader_program;
+use super::{SRC_FRAG_ROUND_RECT, SRC_VERT_ROUND_RECT};
 
 const N_QUADS: usize = 100_000;
-
-const SRC_VERT_ROUND_RECT: &[u8] = include_bytes!("shaders/round-rect.vert");
-const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("shaders/round-rect.frag");
 
 pub struct RoundQuadsScene {
     matrix: Mat4,

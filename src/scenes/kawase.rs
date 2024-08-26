@@ -1,24 +1,17 @@
 use std::{mem, time::Instant};
 
-use gl::types::{GLenum, GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-use glam::{uvec2, vec2, Mat4, UVec2, Vec2};
+use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
+use glam::{uvec2, vec2, Mat4, Vec2};
 use image::ImageFormat;
 use winit::keyboard::{Key, NamedKey, SmolStr};
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::camera::Camera;
+use crate::common_gl::{create_framebuffer, create_shader_program, pop_debug_group, push_debug_group, upload_texture, Framebuffer};
 
-use super::{create_shader_program, pop_debug_group, push_debug_group};
-
-const SRC_VERT_QUAD: &[u8] = include_bytes!("shaders/quad.vert");
-const SRC_VERT_SCREEN: &[u8] = include_bytes!("shaders/screen.vert");
-
-const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("shaders/texture.frag");
-const SRC_FRAG_KAWASE: &[u8] = include_bytes!("shaders/kawase.frag");
-const SRC_FRAG_DITHER: &[u8] = include_bytes!("shaders/dither.frag");
-
-const GURA_JPG: &[u8] = include_bytes!("../../assets/gura.jpg");
-// const BIG_SQUARES_PNG: &[u8] = include_bytes!("../../assets/big-squares.png");
+use super::{
+    GURA_JPG, SRC_FRAG_DITHER, SRC_FRAG_KAWASE, SRC_FRAG_TEXTURE, SRC_VERT_QUAD, SRC_VERT_SCREEN,
+};
 
 const RESDIVS: &[u32] = &[2, 4, 8, 16, 32, 64];
 
@@ -71,7 +64,7 @@ impl KawaseScene {
 
             let mut gura_texture: GLuint = 0;
             gl::GenTextures(1, &mut gura_texture);
-            Self::upload_texture(
+            upload_texture(
                 gura_texture,
                 gura.width(),
                 gura.height(),
@@ -105,7 +98,7 @@ impl KawaseScene {
 
             // framebuffers
             let composite_fbs = (RESDIVS.iter().copied())
-                .map(|resdiv| Self::create_framebuffer("composite", gura_size / resdiv))
+                .map(|resdiv| create_framebuffer("composite", gura_size / resdiv))
                 .collect::<Vec<_>>();
 
             gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
@@ -227,54 +220,6 @@ impl KawaseScene {
         };
     }
 
-    unsafe fn create_framebuffer(name: &str, size: UVec2) -> Framebuffer {
-        let mut fbo: GLuint = 0;
-        gl::GenFramebuffers(1, &mut fbo);
-        gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
-
-        let mut texture: GLuint = 0;
-        gl::GenTextures(1, &mut texture);
-        Self::upload_texture(texture, size.x, size.y, std::ptr::null(), gl::CLAMP_TO_EDGE);
-        gl::FramebufferTexture2D(
-            gl::FRAMEBUFFER,
-            gl::COLOR_ATTACHMENT0,
-            gl::TEXTURE_2D,
-            texture,
-            0,
-        );
-
-        if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
-            eprintln!("{name} framebuffer ({}x{}) not complete", size.x, size.y);
-        }
-
-        Framebuffer { fbo, texture, size }
-    }
-
-    unsafe fn upload_texture(
-        texture: GLuint,
-        width: u32,
-        height: u32,
-        data: *const u8,
-        clamp: GLenum,
-    ) {
-        gl::BindTexture(gl::TEXTURE_2D, texture);
-        gl::TexImage2D(
-            gl::TEXTURE_2D,
-            0,
-            gl::RGBA8 as GLint,
-            width as GLsizei,
-            height as GLsizei,
-            0,
-            gl::RGBA,
-            gl::UNSIGNED_BYTE,
-            data as *const _,
-        );
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MIN_FILTER, gl::LINEAR as GLint);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, clamp as GLint);
-        gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, clamp as GLint);
-    }
-
     pub fn on_key(&mut self, keycode: Key<SmolStr>) {
         match keycode {
             Key::Named(NamedKey::ArrowRight) => {
@@ -305,7 +250,10 @@ impl KawaseScene {
             ""
         };
 
-        println!("kawase config: r={:.2} l={} {}", self.blur.radius, self.blur.layers, dither_mode);
+        println!(
+            "kawase config: r={:.2} l={} {}",
+            self.blur.radius, self.blur.layers, dither_mode
+        );
     }
 
     pub fn draw(&mut self, _camera: &Camera, _mouse_pos: Vec2) {
@@ -491,14 +439,6 @@ impl Drop for KawaseScene {
             gl::DeleteTextures(1, &self.gura_texture);
         }
     }
-}
-
-#[repr(C)]
-#[derive(Debug, Clone)]
-struct Framebuffer {
-    pub fbo: GLuint,
-    pub texture: GLuint,
-    pub size: UVec2,
 }
 
 #[repr(C)]
