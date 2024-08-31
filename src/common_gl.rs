@@ -87,16 +87,16 @@ pub unsafe fn verify_shader(shader: GLuint, ty: &str) {
 
 pub unsafe fn verify_program(shader: GLuint) {
     let mut status = 0;
-    gl::GetShaderiv(shader, gl::LINK_STATUS, &mut status);
+    gl::GetProgramiv(shader, gl::LINK_STATUS, &mut status);
 
     if status != 1 {
         let mut length = 0;
-        gl::GetShaderiv(shader, gl::INFO_LOG_LENGTH, &mut length);
+        gl::GetProgramiv(shader, gl::INFO_LOG_LENGTH, &mut length);
 
         if length > 0 {
             let mut log = String::with_capacity(length as usize);
             log.extend(std::iter::repeat('\0').take(length as usize));
-            gl::GetProgramInfoLog(shader, length, &mut length, log.as_str().as_ptr() as *mut _);
+            gl::GetProgramInfoLog(shader, length, &mut length, log.as_mut_ptr().cast());
             log.truncate(length as usize);
 
             eprintln!("PROGRAM LINK ERROR: {log}");
