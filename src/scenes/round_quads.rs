@@ -65,10 +65,6 @@ impl RoundQuadsScene {
             gl::GenVertexArrays(1, &mut vao);
             gl::BindVertexArray(vao);
 
-            let mut ssbo: u32 = 0;
-            gl::GenBuffers(1, &mut ssbo);
-            gl::BindBuffer(gl::SHADER_STORAGE_BUFFER, ssbo);
-
             let mut vbo: u32 = 0;
             gl::GenBuffers(1, &mut vbo);
             gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
