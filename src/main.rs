@@ -295,30 +295,30 @@ impl ApplicationHandler for App {
                 }
             }
 
+            WindowEvent::RedrawRequested => {
+                if let Some(AppState {
+                    gl_context,
+                    gl_surface,
+                    window,
+                    ..
+                }) = self.state.as_ref()
+                {
+                    let (scenes, scene_ctrl) = self.scenes.as_mut().unwrap();
+
+                    scene_ctrl.update();
+                    scenes.resize(&scene_ctrl.camera, self.viewport.x, self.viewport.y);
+                    scenes.draw(&scene_ctrl.camera, self.mouse_pos);
+
+                    window.request_redraw();
+                    gl_surface.swap_buffers(gl_context).unwrap();
+                }
+            }
+
             _ => {}
         };
 
         if let Some((_, scene_ctrl)) = &mut self.scenes {
             scene_ctrl.interact(&event);
-        }
-    }
-
-    fn about_to_wait(&mut self, _event_loop: &winit::event_loop::ActiveEventLoop) {
-        if let Some(AppState {
-            gl_context,
-            gl_surface,
-            window,
-            ..
-        }) = self.state.as_ref()
-        {
-            let (scenes, scene_ctrl) = self.scenes.as_mut().unwrap();
-
-            scene_ctrl.update();
-            scenes.resize(&scene_ctrl.camera, self.viewport.x, self.viewport.y);
-            scenes.draw(&scene_ctrl.camera, self.mouse_pos);
-
-            window.request_redraw();
-            gl_surface.swap_buffers(gl_context).unwrap();
         }
     }
 }
