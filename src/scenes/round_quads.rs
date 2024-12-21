@@ -166,7 +166,7 @@ impl RoundQuadsScene {
                     let intensity = (surround_radius - distance).max(0.0) / surround_radius;
 
                     quad.rotation += (dt * PI) * 2.0 * intensity;
-                    self.vertices[i] = quad.vertices(2.0 * intensity + 0.5);
+                    self.vertices[i] = quad.vertices(0.5 * intensity + 0.5);
                 }
             }
         }
