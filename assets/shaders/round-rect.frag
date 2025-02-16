@@ -3,8 +3,8 @@ precision mediump float;
 
 in vec2 v_uv;
 in vec2 v_size;
-in vec4 v_fill_color;
-in vec4 v_stroke_color;
+flat in int v_fill_color;
+flat in int v_stroke_color;
 in float v_border_radius;
 in float v_border_width;
 in float v_intensity;
@@ -18,6 +18,15 @@ float sd_rounded_box(vec2 pos, vec2 size, float radius) {
     return min(max(q.x, q.y), 0.0) + length(max(q, 0.0)) - radius;
 }
 
+vec4 int_to_color(int c) {
+    return vec4(
+        float((c >> 24) & 0xff),
+        float((c >> 16) & 0xff),
+        float((c >>  8) & 0xff),
+        float((c >>  0) & 0xff)
+    ) / 255.0;
+}
+
 void main() {
     vec2 pos = v_uv * v_size;
 
@@ -28,13 +37,16 @@ void main() {
         discard;
     }
 
+    vec4 fill_color = int_to_color(v_fill_color);
+    vec4 stroke_color = int_to_color(v_stroke_color);
+
     vec4 frag_color = mix(
             mix(
-                v_fill_color,
-                v_stroke_color,
+                fill_color,
+                stroke_color,
                 smoothstep(-v_border_width - delta, -v_border_width, dist)
             ),
-            vec4(v_stroke_color.rgb, 0.0),
+            vec4(stroke_color.rgb, 0.0),
             smoothstep(-delta, 0.0, dist)
         );
 

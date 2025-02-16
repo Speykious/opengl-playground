@@ -1,11 +1,11 @@
 use std::{
     f32::consts::{PI, TAU},
-    mem,
+    mem::{self, offset_of},
     time::Instant,
 };
 
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-use glam::{vec2, Mat4, Vec2, Vec4};
+use glam::{vec2, Mat4, Vec2};
 use rand::Rng;
 use winit::window::Window;
 
@@ -86,7 +86,6 @@ impl RoundQuadsScene {
             );
 
             let size_vertex = mem::size_of::<Vertex>() as GLsizei;
-            let size_f32 = mem::size_of::<f32>() as GLsizei;
 
             #[rustfmt::skip]
             {
@@ -98,13 +97,13 @@ impl RoundQuadsScene {
                 let a_border_width  = gl::GetAttribLocation(round_rect_shader, c"border_width"  .as_ptr()) as GLuint;
                 let a_intensity     = gl::GetAttribLocation(round_rect_shader, c"intensity"     .as_ptr()) as GLuint;
 
-                gl::VertexAttribPointer(a_position,      2, gl::FLOAT, gl::FALSE, size_vertex,   0             as _);
-                gl::VertexAttribPointer(a_size,          2, gl::FLOAT, gl::FALSE, size_vertex, ( 2 * size_f32) as _);
-                gl::VertexAttribPointer(a_fill_color,    4, gl::FLOAT, gl::FALSE, size_vertex, ( 4 * size_f32) as _);
-                gl::VertexAttribPointer(a_stroke_color,  4, gl::FLOAT, gl::FALSE, size_vertex, ( 8 * size_f32) as _);
-                gl::VertexAttribPointer(a_border_radius, 1, gl::FLOAT, gl::FALSE, size_vertex, (12 * size_f32) as _);
-                gl::VertexAttribPointer(a_border_width,  1, gl::FLOAT, gl::FALSE, size_vertex, (13 * size_f32) as _);
-                gl::VertexAttribPointer(a_intensity,     1, gl::FLOAT, gl::FALSE, size_vertex, (14 * size_f32) as _);
+                gl::VertexAttribPointer(a_position,      2, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, position)      as _);
+                gl::VertexAttribPointer(a_size,          2, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, size)          as _);
+                gl::VertexAttribIPointer(a_fill_color,   1, gl::INT,              size_vertex, offset_of!(Vertex, fill_color)    as _);
+                gl::VertexAttribIPointer(a_stroke_color, 1, gl::INT,              size_vertex, offset_of!(Vertex, stroke_color)  as _);
+                gl::VertexAttribPointer(a_border_radius, 1, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, border_radius) as _);
+                gl::VertexAttribPointer(a_border_width,  1, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, border_width)  as _);
+                gl::VertexAttribPointer(a_intensity,     1, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, intensity)     as _);
 
                 gl::EnableVertexAttribArray(a_position      as GLuint);
                 gl::EnableVertexAttribArray(a_size          as GLuint);
@@ -291,17 +290,17 @@ impl Quad {
             rotation: rng.gen_range(0.0..TAU),
             border_radius: rng.gen_range(1.0..=5.0),
             border_width: rng.gen_range(1.0..=5.0),
-            fill_color: u32::from_le_bytes([
-                rng.gen_range(128..=255),
-                rng.gen_range(128..=255),
-                rng.gen_range(128..=255),
-                rng.gen_range(128..=255),
+            fill_color: u32::from_be_bytes([
+                rng.gen_range(100..=128),
+                rng.gen_range(100..=128),
+                rng.gen_range(100..=128),
+                rng.gen_range(200..=255),
             ]),
-            stroke_color: u32::from_le_bytes([
+            stroke_color: u32::from_be_bytes([
                 rng.gen_range(24..=128),
                 rng.gen_range(24..=128),
                 rng.gen_range(24..=128),
-                rng.gen_range(128..=255),
+                255,
             ]),
         }
     }
@@ -330,8 +329,8 @@ impl Quad {
         pos_dims.map(|position| Vertex {
             position,
             size,
-            fill_color: Vec4::from_array(fill_color.to_le_bytes().map(|n| n as f32)) / 255.0,
-            stroke_color: Vec4::from_array(stroke_color.to_le_bytes().map(|n| n as f32)) / 255.0,
+            fill_color: i32::from_ne_bytes(fill_color.to_le_bytes()),
+            stroke_color: i32::from_ne_bytes(stroke_color.to_le_bytes()),
             border_radius,
             border_width,
             intensity,
@@ -349,8 +348,8 @@ impl Quad {
 struct Vertex {
     position: Vec2,
     size: Vec2,
-    fill_color: Vec4,
-    stroke_color: Vec4,
+    fill_color: i32,
+    stroke_color: i32,
     border_radius: f32,
     border_width: f32,
     intensity: f32,

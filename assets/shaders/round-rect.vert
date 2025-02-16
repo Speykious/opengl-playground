@@ -5,16 +5,16 @@ uniform mat4 u_mvp;
 
 in vec2 position;
 in vec2 size;
-in vec4 fill_color;
-in vec4 stroke_color;
+in int fill_color;
+in int stroke_color;
 in float border_radius;
 in float border_width;
 in float intensity;
 
 out vec2 v_uv;
 out vec2 v_size;
-out vec4 v_fill_color;
-out vec4 v_stroke_color;
+flat out int v_fill_color;
+flat out int v_stroke_color;
 out float v_border_radius;
 out float v_border_width;
 out float v_intensity;
