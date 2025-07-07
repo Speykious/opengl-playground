@@ -5,11 +5,11 @@ edition = "2021"
 
 [dependencies]
 gl = "0.14"
-glam = "0.29"
+glam = "0.30"
 glutin = "0.32"
 glutin-winit = "0.5"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-rand = "0.8"
+rand = "0.9"
 winit = { version = "0.30", default-features = false, features = [
 	"rwh_06",
 	"x11",

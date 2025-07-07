@@ -76,7 +76,7 @@ pub unsafe fn verify_shader(shader: GLuint, ty: &str) {
 
         if length > 0 {
             let mut log = String::with_capacity(length as usize);
-            log.extend(std::iter::repeat('\0').take(length as usize));
+            log.extend(std::iter::repeat_n('\0', length as usize));
             gl::GetShaderInfoLog(shader, length, &mut length, log.as_mut_ptr().cast());
             log.truncate(length as usize);
 
@@ -95,7 +95,7 @@ pub unsafe fn verify_program(shader: GLuint) {
 
         if length > 0 {
             let mut log = String::with_capacity(length as usize);
-            log.extend(std::iter::repeat('\0').take(length as usize));
+            log.extend(std::iter::repeat_n('\0', length as usize));
             gl::GetProgramInfoLog(shader, length, &mut length, log.as_mut_ptr().cast());
             log.truncate(length as usize);
 

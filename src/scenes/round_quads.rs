@@ -43,7 +43,7 @@ impl RoundQuadsScene {
         let mut vertices = Vec::with_capacity(N_QUADS);
         let mut indices = Vec::with_capacity(N_QUADS);
 
-        let mut rng = rand::thread_rng();
+        let mut rng = rand::rng();
         for i in 0..(N_QUADS as u32) {
             let quad = Quad::random(&mut rng, i, area_width);
             vertices.push(quad.vertices(0.5));
@@ -286,20 +286,20 @@ impl Quad {
     fn random(rng: &mut impl Rng, i: u32, area_width: u32) -> Self {
         Self {
             position: Self::pos_from_idx(i, area_width),
-            size: vec2(rng.gen_range(10.0..=20.0), rng.gen_range(10.0..=20.0)),
-            rotation: rng.gen_range(0.0..TAU),
-            border_radius: rng.gen_range(1.0..=5.0),
-            border_width: rng.gen_range(1.0..=5.0),
+            size: vec2(rng.random_range(10.0..=20.0), rng.random_range(10.0..=20.0)),
+            rotation: rng.random_range(0.0..TAU),
+            border_radius: rng.random_range(1.0..=5.0),
+            border_width: rng.random_range(1.0..=5.0),
             fill_color: u32::from_be_bytes([
-                rng.gen_range(100..=128),
-                rng.gen_range(100..=128),
-                rng.gen_range(100..=128),
-                rng.gen_range(200..=255),
+                rng.random_range(100..=128),
+                rng.random_range(100..=128),
+                rng.random_range(100..=128),
+                rng.random_range(200..=255),
             ]),
             stroke_color: u32::from_be_bytes([
-                rng.gen_range(24..=128),
-                rng.gen_range(24..=128),
-                rng.gen_range(24..=128),
+                rng.random_range(24..=128),
+                rng.random_range(24..=128),
+                rng.random_range(24..=128),
                 255,
             ]),
         }
