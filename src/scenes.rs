@@ -1,5 +1,6 @@
 pub mod blurring;
 pub mod kawase;
+pub mod osu_slider;
 pub mod round_quads;
 
 use blurring::BlurringScene;
@@ -11,6 +12,7 @@ use winit::keyboard::{Key, NamedKey, SmolStr};
 use winit::window::Window;
 
 use crate::camera::Camera;
+use crate::scenes::osu_slider::OsuSliderScene;
 
 // shaders
 const SRC_FRAG_BLUR: &[u8] = include_bytes!("../assets/shaders/blur.frag");
@@ -20,6 +22,8 @@ const SRC_VERT_QUAD: &[u8] = include_bytes!("../assets/shaders/quad.vert");
 const SRC_VERT_ROUND_RECT: &[u8] = include_bytes!("../assets/shaders/round-rect.vert");
 const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("../assets/shaders/round-rect.frag");
 const SRC_VERT_SCREEN: &[u8] = include_bytes!("../assets/shaders/screen.vert");
+const SRC_VERT_SLIDER: &[u8] = include_bytes!("../assets/shaders/slider.vert");
+const SRC_FRAG_SLIDER: &[u8] = include_bytes!("../assets/shaders/slider.frag");
 const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("../assets/shaders/texture.frag");
 
 // images
@@ -30,11 +34,12 @@ pub enum Scenes {
     RoundQuads(RoundQuadsScene),
     Blurring(BlurringScene),
     Kawase(KawaseScene),
+    OsuSlider(OsuSliderScene),
 }
 
 impl Scenes {
     pub fn new(window: &Window) -> Self {
-        Self::Kawase(KawaseScene::new(window))
+        Self::OsuSlider(OsuSliderScene::new(window))
     }
 
     pub fn switch_scene(&mut self, window: &Window, keycode: Key<SmolStr>) {
@@ -42,6 +47,7 @@ impl Scenes {
             Key::Named(NamedKey::F1) => *self = Self::RoundQuads(RoundQuadsScene::new(window)),
             Key::Named(NamedKey::F2) => *self = Self::Blurring(BlurringScene::new(window)),
             Key::Named(NamedKey::F3) => *self = Self::Kawase(KawaseScene::new(window)),
+            Key::Named(NamedKey::F4) => *self = Self::OsuSlider(OsuSliderScene::new(window)),
             _ => (),
         }
     }
@@ -51,6 +57,7 @@ impl Scenes {
             Self::RoundQuads(_) => {}
             Self::Blurring(scene) => scene.on_key(keycode),
             Self::Kawase(scene) => scene.on_key(keycode),
+            Self::OsuSlider(_) => {},
         }
     }
 
@@ -59,6 +66,7 @@ impl Scenes {
             Self::RoundQuads(scene) => scene.draw(camera, mouse_pos),
             Self::Blurring(scene) => scene.draw(camera, mouse_pos),
             Self::Kawase(scene) => scene.draw(camera, mouse_pos),
+            Self::OsuSlider(scene) => scene.draw(camera, mouse_pos),
         }
     }
 
@@ -67,6 +75,7 @@ impl Scenes {
             Self::RoundQuads(scene) => scene.resize(camera, width, height),
             Self::Blurring(scene) => scene.resize(camera, width, height),
             Self::Kawase(scene) => scene.resize(camera, width, height),
+            Self::OsuSlider(scene) => scene.resize(camera, width, height),
         }
     }
 }

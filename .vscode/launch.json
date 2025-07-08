@@ -7,15 +7,15 @@
 		{
 			"type": "lldb",
 			"request": "launch",
-			"name": "Debug executable 'opengl-squares'",
+			"name": "Debug executable 'opengl-playground'",
 			"cargo": {
 				"args": [
 					"build",
-					"--bin=opengl-squares",
-					"--package=opengl-squares"
+					"--bin=opengl-playground",
+					"--package=opengl-playground"
 				],
 				"filter": {
-					"name": "opengl-squares",
+					"name": "opengl-playground",
 					"kind": "bin"
 				}
 			},

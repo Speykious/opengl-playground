@@ -246,7 +246,7 @@ impl Drop for RoundQuadsScene {
             gl::DeleteVertexArrays(1, &self.vao);
 
             let buffers = &[self.vbo, self.ebo];
-            gl::DeleteBuffers(1, buffers.as_ptr());
+            gl::DeleteBuffers(buffers.len() as GLsizei, buffers.as_ptr());
         }
     }
 }
