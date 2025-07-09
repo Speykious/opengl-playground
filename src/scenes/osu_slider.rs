@@ -5,7 +5,7 @@ use glam::{vec2, Mat4, Vec2, Vec3};
 use winit::window::Window;
 
 use crate::scenes::osu_slider::slider_path::{SliderCurveType, SliderPath};
-use crate::scenes::{SRC_FRAG_SLIDER, SRC_VERT_SLIDER};
+use crate::scenes::{SRC_FRAG_SLIDER, SRC_FRAG_SLIDER_POINT, SRC_VERT_SLIDER};
 use crate::{camera::Camera, common_gl::create_shader_program};
 
 mod path_approx;
@@ -72,6 +72,10 @@ pub struct OsuSliderScene {
     sliders: Vec<SliderVertices>,
 
     slider_shader: GLuint,
+    u_mvp_slider: GLint,
+
+    slider_point_shader: GLuint,
+    u_mvp_slider_point: GLint,
 
     path_vao: GLuint,
     path_vbo: GLuint,
@@ -81,8 +85,6 @@ pub struct OsuSliderScene {
 
     body_vao: GLuint,
     body_vbo: GLuint,
-
-    u_mvp_quad: GLint,
 }
 
 impl OsuSliderScene {
@@ -90,11 +92,13 @@ impl OsuSliderScene {
         let radius = 32.0;
 
         let sliders = [
-            sliders::euro(radius),
-            // sliders::pattern::a(radius),
-            // sliders::pattern::b(radius),
-            // sliders::pattern::c(radius),
-            // sliders::pattern::d(radius),
+            // sliders::tsd(radius),
+            // sliders::good_random(radius),
+            // sliders::euro(radius),
+            sliders::pattern::a(radius),
+            sliders::pattern::b(radius),
+            sliders::pattern::c(radius),
+            sliders::pattern::d(radius),
         ]
         .iter()
         .map(SliderVertices::from_slider_path)
@@ -107,8 +111,10 @@ impl OsuSliderScene {
             gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
 
             let slider_shader = create_shader_program(SRC_VERT_SLIDER, SRC_FRAG_SLIDER);
+            let u_mvp_slider = gl::GetUniformLocation(slider_shader, c"u_mvp".as_ptr());
 
-            let u_mvp_quad = gl::GetUniformLocation(slider_shader, c"u_mvp".as_ptr());
+            let slider_point_shader = create_shader_program(SRC_VERT_SLIDER, SRC_FRAG_SLIDER_POINT);
+            let u_mvp_slider_point = gl::GetUniformLocation(slider_point_shader, c"u_mvp".as_ptr());
 
             let mut ctrl_vbo: u32 = 0;
             gl::GenBuffers(1, &mut ctrl_vbo);
@@ -117,7 +123,7 @@ impl OsuSliderScene {
             let mut ctrl_vao: u32 = 0;
             gl::GenVertexArrays(1, &mut ctrl_vao);
             gl::BindVertexArray(ctrl_vao);
-            Self::setup_vao(slider_shader);
+            Self::setup_vao(slider_point_shader);
 
             let mut path_vbo: u32 = 0;
             gl::GenBuffers(1, &mut path_vbo);
@@ -126,7 +132,7 @@ impl OsuSliderScene {
             let mut path_vao: u32 = 0;
             gl::GenVertexArrays(1, &mut path_vao);
             gl::BindVertexArray(path_vao);
-            Self::setup_vao(slider_shader);
+            Self::setup_vao(slider_point_shader);
 
             let mut body_vbo: u32 = 0;
             gl::GenBuffers(1, &mut body_vbo);
@@ -147,6 +153,10 @@ impl OsuSliderScene {
                 sliders,
 
                 slider_shader,
+                u_mvp_slider,
+
+                slider_point_shader,
+                u_mvp_slider_point,
 
                 path_vao,
                 path_vbo,
@@ -157,18 +167,17 @@ impl OsuSliderScene {
                 body_vao,
                 body_vbo,
 
-                u_mvp_quad,
             }
         }
     }
 
-    fn setup_vao(slider_shader: GLuint) {
+    fn setup_vao(shader: GLuint) {
         #[rustfmt::skip]
         unsafe {
             let size_vertex = mem::size_of::<Vertex>() as GLsizei;
 
-            let a_position = gl::GetAttribLocation(slider_shader, c"position" .as_ptr()) as GLuint;
-            let a_uv       = gl::GetAttribLocation(slider_shader, c"uv"       .as_ptr()) as GLuint;
+            let a_position = gl::GetAttribLocation(shader, c"position" .as_ptr()) as GLuint;
+            let a_uv       = gl::GetAttribLocation(shader, c"uv"       .as_ptr()) as GLuint;
 
             gl::VertexAttribPointer(a_position, 3, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, position) as _);
             gl::VertexAttribPointer(a_uv,       2, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, uv)       as _);
@@ -222,7 +231,7 @@ impl OsuSliderScene {
                 gl::DYNAMIC_DRAW,
             );
 
-            gl::UseProgram(self.slider_shader);
+            gl::UseProgram(self.slider_point_shader);
 
             gl::BindVertexArray(self.path_vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.path_vbo);
@@ -243,11 +252,12 @@ impl OsuSliderScene {
             gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
 
             gl::ClearColor(r, g, b, a);
-            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+            gl::Clear(gl::COLOR_BUFFER_BIT);
 
             gl::Enable(gl::DEPTH_TEST);
             gl::DepthFunc(gl::LESS);
             for slider in &self.sliders {
+                gl::Clear(gl::DEPTH_BUFFER_BIT);
                 self.draw_slider_body(slider);
             }
             gl::Disable(gl::DEPTH_TEST);
@@ -266,7 +276,10 @@ impl OsuSliderScene {
             self.matrix = camera.matrix(self.viewport);
 
             gl::UseProgram(self.slider_shader);
-            gl::UniformMatrix4fv(self.u_mvp_quad, 1, gl::FALSE, self.matrix.as_ref().as_ptr());
+            gl::UniformMatrix4fv(self.u_mvp_slider, 1, gl::FALSE, self.matrix.as_ref().as_ptr());
+
+            gl::UseProgram(self.slider_point_shader);
+            gl::UniformMatrix4fv(self.u_mvp_slider_point, 1, gl::FALSE, self.matrix.as_ref().as_ptr());
         }
     }
 }
@@ -275,6 +288,7 @@ impl Drop for OsuSliderScene {
     fn drop(&mut self) {
         unsafe {
             gl::DeleteProgram(self.slider_shader);
+            gl::DeleteProgram(self.slider_point_shader);
 
             let vaos = &[self.path_vao, self.ctrl_vao, self.body_vao];
             gl::DeleteVertexArrays(vaos.len() as GLsizei, vaos.as_ptr());
@@ -362,6 +376,37 @@ mod sliders {
                 Scp::new(Sct::Inherit, 165.0, 276.0),
                 Scp::new(Sct::Inherit, 281.0, 331.0),
                 Scp::new(Sct::Inherit, 357.0, 234.0),
+            ],
+            length: 1025.99996868897,
+            radius,
+        }
+    }
+
+    // How does it look for a time-series-like thing?
+    pub fn tsd(radius: f32) -> SliderPath {
+        SliderPath {
+            control_points: vec![
+                Scp::new(Sct::Linear, 0.0, 0.0),
+                Scp::new(Sct::Inherit, 5.0, 200.0),
+                Scp::new(Sct::Inherit, 10.0, 10.0),
+                Scp::new(Sct::Inherit, 15.0, 190.0),
+                Scp::new(Sct::Inherit, 20.0, 20.0),
+                Scp::new(Sct::Inherit, 25.0, 180.0),
+                Scp::new(Sct::Inherit, 30.0, 30.0),
+                Scp::new(Sct::Inherit, 35.0, 170.0),
+                Scp::new(Sct::Inherit, 40.0, 40.0),
+                Scp::new(Sct::Inherit, 45.0, 160.0),
+                Scp::new(Sct::Inherit, 50.0, 50.0),
+                Scp::new(Sct::Inherit, 55.0, 150.0),
+                Scp::new(Sct::Inherit, 60.0, 60.0),
+                Scp::new(Sct::Inherit, 65.0, 140.0),
+                Scp::new(Sct::Inherit, 70.0, 70.0),
+                Scp::new(Sct::Inherit, 75.0, 130.0),
+                Scp::new(Sct::Inherit, 80.0, 80.0),
+                Scp::new(Sct::Inherit, 85.0, 120.0),
+                Scp::new(Sct::Inherit, 90.0, 90.0),
+                Scp::new(Sct::Inherit, 95.0, 110.0),
+                Scp::new(Sct::Inherit, 100.0, 100.0),
             ],
             length: 1025.99996868897,
             radius,

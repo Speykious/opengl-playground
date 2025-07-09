@@ -24,6 +24,7 @@ const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("../assets/shaders/round-rect.
 const SRC_VERT_SCREEN: &[u8] = include_bytes!("../assets/shaders/screen.vert");
 const SRC_VERT_SLIDER: &[u8] = include_bytes!("../assets/shaders/slider.vert");
 const SRC_FRAG_SLIDER: &[u8] = include_bytes!("../assets/shaders/slider.frag");
+const SRC_FRAG_SLIDER_POINT: &[u8] = include_bytes!("../assets/shaders/slider_point.frag");
 const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("../assets/shaders/texture.frag");
 
 // images
