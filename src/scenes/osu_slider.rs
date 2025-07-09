@@ -97,14 +97,15 @@ impl OsuSliderScene {
         let slider_radius = 32.0;
 
         let slider_paths = vec![
-            // sliders::pattern::a(),
-            // sliders::pattern::b(),
-            // sliders::pattern::c(),
-            // sliders::pattern::d(),
+            sliders::pattern::a(),
+            sliders::pattern::b(),
+            sliders::pattern::c(),
+            sliders::pattern::d(),
+            // sliders::catmull(),
 
             // sliders::tsd(),
-            sliders::good_random(),
-            sliders::euro(),
+            // sliders::good_random(),
+            // sliders::euro(),
         ];
 
         let slider_vertices = (slider_paths.iter())
@@ -256,12 +257,10 @@ impl OsuSliderScene {
     }
 
     pub fn draw(&mut self, camera: &Camera, mouse_pos: Vec2) {
-        let p0 = mouse_pos.x as f64 / self.viewport.x as f64;
-        let p1 = mouse_pos.y as f64 / self.viewport.y as f64;
-        let (p0, p1) = (p0.min(p1), p0.max(p1));
+        let p = (mouse_pos.x as f64 / self.viewport.x as f64 - 0.5) / 0.727 + 0.5;
 
         self.slider_vertices = (self.slider_paths.iter())
-            .map(|sp| SliderVertices::from_slider_path(sp, self.slider_radius, p0, p1))
+            .map(|sp| SliderVertices::from_slider_path(sp, self.slider_radius, 0.0, p))
             .collect::<Vec<_>>();
 
         self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
@@ -536,6 +535,21 @@ mod sliders {
                 Scp::new(Sct::Inherit, 100.0, 100.0),
             ],
             length: 1025.99996868897,
+        }
+    }
+
+    pub fn catmull() -> SliderPath {
+        SliderPath {
+            control_points: vec![
+                Scp::new(Sct::Catmull, 404.0, 157.0),
+                Scp::new(Sct::Inherit, 412.0, 081.0),
+                Scp::new(Sct::Inherit, 457.0, 039.0),
+                Scp::new(Sct::Linear, 507.0, 093.0),
+                Scp::new(Sct::Catmull, 486.0, 260.0),
+                Scp::new(Sct::Inherit, 340.0, 392.0),
+                Scp::new(Sct::Inherit, 198.0, 264.0),
+            ],
+            length: 800.0,
         }
     }
 
