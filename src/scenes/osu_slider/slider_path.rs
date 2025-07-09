@@ -33,7 +33,6 @@ impl SliderControlPoint {
 pub struct SliderPath {
     pub control_points: Vec<SliderControlPoint>,
     pub length: f64,
-    pub radius: f32,
 }
 
 #[derive(Default)]
@@ -181,7 +180,7 @@ impl SliderPath {
             segment_ends,
         };
 
-		let length = Self::calculate_length(&mut path, optimized_length, None/*Some(self.length)*/);
+		let length = Self::calculate_length(&mut path, optimized_length, Some(self.length));
 
 		Some((path, length))
     }

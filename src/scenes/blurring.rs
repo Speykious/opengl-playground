@@ -104,8 +104,8 @@ impl BlurringScene {
             let composite_fbs = (RESDIVS.iter().copied())
                 .map(|resdiv| {
                     (
-                        create_framebuffer("composite", gura_size / resdiv),
-                        create_framebuffer("ping_pong", gura_size / resdiv),
+                        create_framebuffer("composite", gura_size / resdiv, false),
+                        create_framebuffer("ping_pong", gura_size / resdiv, false),
                     )
                 })
                 .collect::<Vec<_>>();
@@ -483,14 +483,6 @@ impl Drop for BlurringScene {
             gl::DeleteProgram(self.comp_shader);
             gl::DeleteProgram(self.blur_shader);
             gl::DeleteProgram(self.dither_shader);
-
-            for comp_fb in &self.composite_fbs {
-                let fbs = &[comp_fb.0.fbo, comp_fb.1.fbo];
-                gl::DeleteFramebuffers(fbs.len() as GLsizei, fbs.as_ptr());
-
-                let textures = &[comp_fb.0.texture, comp_fb.1.texture];
-                gl::DeleteTextures(textures.len() as GLsizei, textures.as_ptr());
-            }
 
             let buffers = &[self.quad_vbo, self.quad_ebo, self.comp_vbo];
             gl::DeleteBuffers(buffers.len() as GLsizei, buffers.as_ptr());

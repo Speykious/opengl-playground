@@ -1,11 +1,14 @@
 use std::mem::{self, offset_of};
 
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-use glam::{vec2, Mat4, Vec2, Vec3};
+use glam::{ivec2, vec2, Mat4, Vec2, Vec3};
 use winit::window::Window;
 
+use crate::common_gl::{create_framebuffer, Framebuffer};
 use crate::scenes::osu_slider::slider_path::{SliderCurveType, SliderPath};
-use crate::scenes::{SRC_FRAG_SLIDER, SRC_FRAG_SLIDER_POINT, SRC_VERT_SLIDER};
+use crate::scenes::{
+    SRC_FRAG_SLIDER, SRC_FRAG_SLIDER_POINT, SRC_FRAG_TEXTURE, SRC_VERT_SCREEN, SRC_VERT_SLIDER,
+};
 use crate::{camera::Camera, common_gl::create_shader_program};
 
 mod path_approx;
@@ -13,14 +16,13 @@ mod path_draw;
 mod slider_path;
 
 struct SliderVertices {
-    ctrl: Vec<Vertex>,
-    path: Vec<Vertex>,
-    body: Vec<Vertex>,
-    radius: f32,
+    ctrl: Vec<SliderVertex>,
+    path: Vec<SliderVertex>,
+    body: Vec<SliderVertex>,
 }
 
 impl SliderVertices {
-    fn from_slider_path(slider: &SliderPath) -> Self {
+    fn from_slider_path(slider: &SliderPath, radius: f32, p0: f64, p1: f64) -> Self {
         let ctrl = (slider.control_points.iter())
             .map(|cp| {
                 let uv = match cp.curve_type {
@@ -31,37 +33,32 @@ impl SliderVertices {
                     SliderCurveType::PerfectCircle => vec2(1.0, 0.5),
                 };
 
-                Vertex::new(cp.vec2().extend(0.0), uv)
+                SliderVertex::new(cp.vec2().extend(0.0), uv)
             })
             .collect::<Vec<_>>();
 
-        let (calculated_path, _length) = slider.calculate_path_and_length().unwrap();
-        // let path = SliderPath::path_to_progress(&calculated_path, &calculated_length, 0.0, 1.0);
+        let (calculated_path, calculated_length) = slider.calculate_path_and_length().unwrap();
+        let progress_path =
+            SliderPath::path_to_progress(&calculated_path, &calculated_length, p0, p1);
 
-        let path_len = calculated_path.points.len();
-        let path = (calculated_path.points.iter().enumerate())
+        let path = (progress_path.iter().enumerate())
             .map(|(i, &p)| {
                 let uv = if i < 1 {
                     Vec2::ZERO
-                } else if i >= path_len - 1 {
+                } else if i >= progress_path.len() - 1 {
                     Vec2::ONE
                 } else {
-                    let v = i as f32 / path_len as f32;
+                    let v = i as f32 / progress_path.len() as f32;
                     vec2(v, 1.0 - v)
                 };
 
-                Vertex::new(p.extend(0.0), uv)
+                SliderVertex::new(p.extend(0.0), uv)
             })
             .collect::<Vec<_>>();
 
-        let body = path_draw::generate_slider_vertices(&calculated_path.points, slider.radius);
+        let body = path_draw::generate_slider_vertices(&progress_path, radius);
 
-        Self {
-            ctrl,
-            path,
-            body,
-            radius: slider.radius,
-        }
+        Self { ctrl, path, body }
     }
 }
 
@@ -69,7 +66,15 @@ pub struct OsuSliderScene {
     matrix: Mat4,
     viewport: Vec2,
 
-    sliders: Vec<SliderVertices>,
+    slider_radius: f32,
+
+    slider_fb: Framebuffer,
+    slider_paths: Vec<SliderPath>,
+    slider_vertices: Vec<SliderVertices>,
+
+    screen_shader: GLuint,
+    screen_vao: GLuint,
+    screen_vbo: GLuint,
 
     slider_shader: GLuint,
     u_mvp_slider: GLint,
@@ -89,26 +94,27 @@ pub struct OsuSliderScene {
 
 impl OsuSliderScene {
     pub fn new(window: &Window) -> Self {
-        let radius = 32.0;
+        let slider_radius = 32.0;
 
-        let sliders = [
-            // sliders::tsd(radius),
-            // sliders::good_random(radius),
-            // sliders::euro(radius),
-            sliders::pattern::a(radius),
-            sliders::pattern::b(radius),
-            sliders::pattern::c(radius),
-            sliders::pattern::d(radius),
-        ]
-        .iter()
-        .map(SliderVertices::from_slider_path)
-        .collect::<Vec<_>>();
+        let slider_paths = vec![
+            // sliders::pattern::a(),
+            // sliders::pattern::b(),
+            // sliders::pattern::c(),
+            // sliders::pattern::d(),
+
+            // sliders::tsd(),
+            sliders::good_random(),
+            sliders::euro(),
+        ];
+
+        let slider_vertices = (slider_paths.iter())
+            .map(|sp| SliderVertices::from_slider_path(sp, slider_radius, 0.0, 1.0))
+            .collect::<Vec<_>>();
 
         unsafe {
-            // Normal blending
-            gl::Enable(gl::BLEND);
-            gl::BlendEquation(gl::FUNC_ADD);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            Self::blend(true);
+
+            let screen_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_TEXTURE);
 
             let slider_shader = create_shader_program(SRC_VERT_SLIDER, SRC_FRAG_SLIDER);
             let u_mvp_slider = gl::GetUniformLocation(slider_shader, c"u_mvp".as_ptr());
@@ -116,6 +122,23 @@ impl OsuSliderScene {
             let slider_point_shader = create_shader_program(SRC_VERT_SLIDER, SRC_FRAG_SLIDER_POINT);
             let u_mvp_slider_point = gl::GetUniformLocation(slider_point_shader, c"u_mvp".as_ptr());
 
+            // screen vertices
+            let mut screen_vbo: GLuint = 0;
+            gl::GenBuffers(1, &mut screen_vbo);
+            gl::BindBuffer(gl::ARRAY_BUFFER, screen_vbo);
+            gl::BufferData(
+                gl::ARRAY_BUFFER,
+                mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
+                SCREEN_VERTICES.as_ptr() as *const _,
+                gl::STATIC_DRAW,
+            );
+
+            let mut screen_vao: GLuint = 0;
+            gl::GenVertexArrays(1, &mut screen_vao);
+            gl::BindVertexArray(screen_vao);
+            Self::setup_screen_vao(screen_shader);
+
+            // slider ctrl points
             let mut ctrl_vbo: u32 = 0;
             gl::GenBuffers(1, &mut ctrl_vbo);
             gl::BindBuffer(gl::ARRAY_BUFFER, ctrl_vbo);
@@ -123,8 +146,9 @@ impl OsuSliderScene {
             let mut ctrl_vao: u32 = 0;
             gl::GenVertexArrays(1, &mut ctrl_vao);
             gl::BindVertexArray(ctrl_vao);
-            Self::setup_vao(slider_point_shader);
+            Self::setup_slider_vao(slider_point_shader);
 
+            // slider path points
             let mut path_vbo: u32 = 0;
             gl::GenBuffers(1, &mut path_vbo);
             gl::BindBuffer(gl::ARRAY_BUFFER, path_vbo);
@@ -132,8 +156,9 @@ impl OsuSliderScene {
             let mut path_vao: u32 = 0;
             gl::GenVertexArrays(1, &mut path_vao);
             gl::BindVertexArray(path_vao);
-            Self::setup_vao(slider_point_shader);
+            Self::setup_slider_vao(slider_point_shader);
 
+            // slider body mesh
             let mut body_vbo: u32 = 0;
             gl::GenBuffers(1, &mut body_vbo);
             gl::BindBuffer(gl::ARRAY_BUFFER, body_vbo);
@@ -141,16 +166,26 @@ impl OsuSliderScene {
             let mut body_vao: u32 = 0;
             gl::GenVertexArrays(1, &mut body_vao);
             gl::BindVertexArray(body_vao);
-            Self::setup_vao(slider_shader);
+            Self::setup_slider_vao(slider_shader);
 
             let win_size = window.inner_size();
             let viewport = Vec2::new(win_size.width as f32, win_size.height as f32);
+
+            let slider_fb = create_framebuffer("Slider Framebuffer", viewport.as_uvec2(), true);
 
             Self {
                 matrix: Mat4::default(),
                 viewport,
 
-                sliders,
+                slider_radius,
+
+                slider_fb,
+                slider_paths,
+                slider_vertices,
+
+                screen_shader,
+                screen_vao,
+                screen_vbo,
 
                 slider_shader,
                 u_mvp_slider,
@@ -166,20 +201,37 @@ impl OsuSliderScene {
 
                 body_vao,
                 body_vbo,
-
             }
         }
     }
 
-    fn setup_vao(shader: GLuint) {
+    fn blend(enabled: bool) {
+        unsafe {
+            if enabled {
+                // Normal blending
+                gl::Enable(gl::BLEND);
+                gl::BlendFuncSeparate(
+                    gl::SRC_ALPHA,
+                    gl::ONE_MINUS_SRC_ALPHA,
+                    gl::SRC_ALPHA,
+                    gl::ONE,
+                );
+                gl::BlendEquationSeparate(gl::FUNC_ADD, gl::FUNC_ADD);
+            } else {
+                gl::Disable(gl::BLEND);
+            }
+        }
+    }
+
+    fn setup_screen_vao(shader: GLuint) {
         #[rustfmt::skip]
         unsafe {
-            let size_vertex = mem::size_of::<Vertex>() as GLsizei;
+            let size_vertex: GLsizei = mem::size_of::<Vertex>() as GLsizei;
 
             let a_position = gl::GetAttribLocation(shader, c"position" .as_ptr()) as GLuint;
             let a_uv       = gl::GetAttribLocation(shader, c"uv"       .as_ptr()) as GLuint;
 
-            gl::VertexAttribPointer(a_position, 3, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, position) as _);
+            gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, position) as _);
             gl::VertexAttribPointer(a_uv,       2, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, uv)       as _);
 
             gl::EnableVertexAttribArray(a_position as GLuint);
@@ -187,12 +239,43 @@ impl OsuSliderScene {
         };
     }
 
+    fn setup_slider_vao(shader: GLuint) {
+        #[rustfmt::skip]
+        unsafe {
+            let size_vertex = mem::size_of::<SliderVertex>() as GLsizei;
+
+            let a_position = gl::GetAttribLocation(shader, c"position" .as_ptr()) as GLuint;
+            let a_uv       = gl::GetAttribLocation(shader, c"uv"       .as_ptr()) as GLuint;
+
+            gl::VertexAttribPointer(a_position, 3, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(SliderVertex, position) as _);
+            gl::VertexAttribPointer(a_uv,       2, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(SliderVertex, uv)       as _);
+
+            gl::EnableVertexAttribArray(a_position as GLuint);
+            gl::EnableVertexAttribArray(a_uv       as GLuint);
+        };
+    }
+
     pub fn draw(&mut self, camera: &Camera, mouse_pos: Vec2) {
-        self.draw_with_clear_color(0.0, 0.0, 0.0, 1.0);
+        let p0 = mouse_pos.x as f64 / self.viewport.x as f64;
+        let p1 = mouse_pos.y as f64 / self.viewport.y as f64;
+        let (p0, p1) = (p0.min(p1), p0.max(p1));
+
+        self.slider_vertices = (self.slider_paths.iter())
+            .map(|sp| SliderVertices::from_slider_path(sp, self.slider_radius, p0, p1))
+            .collect::<Vec<_>>();
+
+        self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
     }
 
     fn draw_slider_body(&self, slider: &SliderVertices) {
         unsafe {
+            gl::BindFramebuffer(gl::FRAMEBUFFER, self.slider_fb.fbo);
+            Self::blend(false);
+            gl::Enable(gl::DEPTH_TEST);
+            gl::DepthFunc(gl::LESS);
+            gl::ClearColor(0.0, 0.0, 0.0, 0.0);
+            gl::Clear(gl::COLOR_BUFFER_BIT | gl::DEPTH_BUFFER_BIT);
+
             gl::BindVertexArray(self.body_vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.body_vbo);
             gl::BufferData(
@@ -208,6 +291,21 @@ impl OsuSliderScene {
             gl::BindVertexArray(self.body_vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.body_vbo);
             gl::DrawArrays(gl::TRIANGLES, 0, slider.body.len() as GLsizei);
+
+            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            Self::blend(true);
+            gl::Disable(gl::DEPTH_TEST);
+
+            gl::UseProgram(self.screen_shader);
+
+            gl::BindVertexArray(self.screen_vao);
+            gl::BindBuffer(gl::ARRAY_BUFFER, self.screen_vbo);
+            gl::BindTexture(gl::TEXTURE_2D, self.slider_fb.texture);
+            gl::ActiveTexture(gl::TEXTURE0);
+
+            gl::DrawArrays(gl::TRIANGLES, 0, 6);
+
+            gl::BindTexture(gl::TEXTURE_2D, 0);
         }
     }
 
@@ -254,32 +352,39 @@ impl OsuSliderScene {
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
 
-            gl::Enable(gl::DEPTH_TEST);
-            gl::DepthFunc(gl::LESS);
-            for slider in &self.sliders {
-                gl::Clear(gl::DEPTH_BUFFER_BIT);
+            for slider in &self.slider_vertices {
                 self.draw_slider_body(slider);
-            }
-            gl::Disable(gl::DEPTH_TEST);
-
-            for slider in &self.sliders {
                 self.draw_slider_debug(slider);
             }
         }
     }
 
     pub fn resize(&mut self, camera: &Camera, width: i32, height: i32) {
+        let viewport = ivec2(width, height);
+
         unsafe {
             gl::Viewport(0, 0, width, height);
 
-            self.viewport = Vec2::new(width as f32, height as f32);
+            self.slider_fb = create_framebuffer("Slider Framebuffer", viewport.as_uvec2(), true);
+
+            self.viewport = viewport.as_vec2();
             self.matrix = camera.matrix(self.viewport);
 
             gl::UseProgram(self.slider_shader);
-            gl::UniformMatrix4fv(self.u_mvp_slider, 1, gl::FALSE, self.matrix.as_ref().as_ptr());
+            gl::UniformMatrix4fv(
+                self.u_mvp_slider,
+                1,
+                gl::FALSE,
+                self.matrix.as_ref().as_ptr(),
+            );
 
             gl::UseProgram(self.slider_point_shader);
-            gl::UniformMatrix4fv(self.u_mvp_slider_point, 1, gl::FALSE, self.matrix.as_ref().as_ptr());
+            gl::UniformMatrix4fv(
+                self.u_mvp_slider_point,
+                1,
+                gl::FALSE,
+                self.matrix.as_ref().as_ptr(),
+            );
         }
     }
 }
@@ -301,16 +406,40 @@ impl Drop for OsuSliderScene {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
-struct Vertex {
+struct SliderVertex {
     pub position: Vec3,
     pub uv: Vec2,
 }
 
-impl Vertex {
+impl SliderVertex {
     pub const fn new(position: Vec3, uv: Vec2) -> Self {
         Self { position, uv }
     }
 }
+/// Vertex used for the screen framebuffer.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, Default)]
+struct Vertex {
+    pub position: Vec2,
+    pub uv: Vec2,
+}
+
+impl Vertex {
+    const fn new(position: Vec2, uv: Vec2) -> Self {
+        Self { position, uv }
+    }
+}
+
+#[rustfmt::skip]
+const SCREEN_VERTICES: &[Vertex] = &[
+                  // position       // uv
+    Vertex::new(vec2(-1.0,  1.0), vec2(0.0, 1.0)),
+    Vertex::new(vec2(-1.0, -1.0), vec2(0.0, 0.0)),
+    Vertex::new(vec2( 1.0, -1.0), vec2(1.0, 0.0)),
+    Vertex::new(vec2(-1.0,  1.0), vec2(0.0, 1.0)),
+    Vertex::new(vec2( 1.0, -1.0), vec2(1.0, 0.0)),
+    Vertex::new(vec2( 1.0,  1.0), vec2(1.0, 1.0)),
+];
 
 mod sliders {
     use crate::scenes::osu_slider::slider_path::{SliderControlPoint, SliderCurveType, SliderPath};
@@ -323,7 +452,7 @@ mod sliders {
     /// ```ignore
     /// 314,167,692156,6,0,B|299:147|299:147|350:107|421:141|430:207|379:192|423:257|448:266|486:275|486:275|333:221|238:349|238:349|194:337|177:272|210:224|220:268|251:208|224:175,1,769.50000293541
     /// ```
-    pub fn good_random(radius: f32) -> SliderPath {
+    pub fn good_random() -> SliderPath {
         SliderPath {
             control_points: vec![
                 Scp::new(Sct::Bezier, 314.0, 167.0),
@@ -345,7 +474,6 @@ mod sliders {
                 Scp::new(Sct::Inherit, 224.0, 175.0),
             ],
             length: 769.50000293541,
-            radius,
         }
     }
 
@@ -354,7 +482,7 @@ mod sliders {
     /// ```ignore
     /// 285,78,702227,6,0,B|293:56|293:56|201:27|133:105|144:163|144:163|110:169|110:169|107:174|107:174|220:154|220:154|224:149|224:149|144:163|144:163|153:220|153:220|116:226|116:226|113:231|113:231|225:207|225:207|228:202|228:202|153:220|153:220|165:276|281:331|357:234,1,1025.99996868897
     /// ```
-    pub fn euro(radius: f32) -> SliderPath {
+    pub fn euro() -> SliderPath {
         SliderPath {
             control_points: vec![
                 Scp::new(Sct::Bezier, 285.0, 78.0),
@@ -378,12 +506,11 @@ mod sliders {
                 Scp::new(Sct::Inherit, 357.0, 234.0),
             ],
             length: 1025.99996868897,
-            radius,
         }
     }
 
     // How does it look for a time-series-like thing?
-    pub fn tsd(radius: f32) -> SliderPath {
+    pub fn tsd() -> SliderPath {
         SliderPath {
             control_points: vec![
                 Scp::new(Sct::Linear, 0.0, 0.0),
@@ -409,7 +536,6 @@ mod sliders {
                 Scp::new(Sct::Inherit, 100.0, 100.0),
             ],
             length: 1025.99996868897,
-            radius,
         }
     }
 
@@ -424,7 +550,7 @@ mod sliders {
     pub mod pattern {
         use super::*;
 
-        pub fn a(radius: f32) -> SliderPath {
+        pub fn a() -> SliderPath {
             SliderPath {
                 control_points: vec![
                     Scp::new(Sct::PerfectCircle, 117.0, 265.0),
@@ -435,22 +561,20 @@ mod sliders {
                     Scp::new(Sct::Inherit, 68.0, 121.0),
                 ],
                 length: 300.0,
-                radius,
             }
         }
 
-        pub fn b(radius: f32) -> SliderPath {
+        pub fn b() -> SliderPath {
             SliderPath {
                 control_points: vec![
                     Scp::new(Sct::Linear, 0.0, 211.0),
                     Scp::new(Sct::Inherit, 111.0, 189.0),
                 ],
                 length: 100.0,
-                radius,
             }
         }
 
-        pub fn c(radius: f32) -> SliderPath {
+        pub fn c() -> SliderPath {
             SliderPath {
                 control_points: vec![
                     Scp::new(Sct::Linear, 204.0, 174.0),
@@ -460,11 +584,10 @@ mod sliders {
                     Scp::new(Sct::Inherit, 387.0, 240.0),
                 ],
                 length: 350.0,
-                radius,
             }
         }
 
-        pub fn d(radius: f32) -> SliderPath {
+        pub fn d() -> SliderPath {
             SliderPath {
                 control_points: vec![
                     Scp::new(Sct::Linear, 404.0, 157.0),
@@ -476,7 +599,6 @@ mod sliders {
                     Scp::new(Sct::Inherit, 198.0, 264.0),
                 ],
                 length: 800.0,
-                radius,
             }
         }
     }

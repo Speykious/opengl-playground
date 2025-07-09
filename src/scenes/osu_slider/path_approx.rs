@@ -1,3 +1,7 @@
+#![allow(clippy::manual_memcpy)]
+#![allow(clippy::needless_range_loop)]
+#![allow(clippy::get_first)]
+
 use std::f64::consts::TAU;
 
 use glam::{vec2, Vec2};

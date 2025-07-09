@@ -111,10 +111,23 @@ pub unsafe fn verify_program(shader: GLuint) {
 pub struct Framebuffer {
     pub fbo: GLuint,
     pub texture: GLuint,
+    pub depth: Option<GLuint>,
     pub size: UVec2,
 }
 
-pub unsafe fn create_framebuffer(name: &str, size: UVec2) -> Framebuffer {
+impl Drop for Framebuffer {
+    fn drop(&mut self) {
+        unsafe {
+            gl::DeleteFramebuffers(1, &self.fbo);
+            gl::DeleteTextures(1, &self.texture);
+            if let Some(depth) = self.depth {
+                gl::DeleteTextures(1, &depth);
+            }
+        }
+    }
+}
+
+pub unsafe fn create_framebuffer(name: &str, size: UVec2, depth: bool) -> Framebuffer {
     let mut fbo: GLuint = 0;
     gl::GenFramebuffers(1, &mut fbo);
     gl::BindFramebuffer(gl::FRAMEBUFFER, fbo);
@@ -130,11 +143,35 @@ pub unsafe fn create_framebuffer(name: &str, size: UVec2) -> Framebuffer {
         0,
     );
 
+    let depth = if depth {
+        let mut texture: GLuint = 0;
+        gl::GenTextures(1, &mut texture);
+        upload_depth_texture(texture, size.x, size.y, std::ptr::null());
+
+        gl::FramebufferTexture2D(
+            gl::FRAMEBUFFER,
+            gl::DEPTH_STENCIL_ATTACHMENT,
+            gl::TEXTURE_2D,
+            texture,
+            0,
+        );
+
+        Some(texture)
+    } else {
+        None
+    };
+
     if gl::CheckFramebufferStatus(gl::FRAMEBUFFER) != gl::FRAMEBUFFER_COMPLETE {
         eprintln!("{name} framebuffer ({}x{}) not complete", size.x, size.y);
+        std::process::exit(0_0);
     }
 
-    Framebuffer { fbo, texture, size }
+    Framebuffer {
+        fbo,
+        texture,
+        depth,
+        size,
+    }
 }
 
 pub unsafe fn upload_texture(
@@ -160,4 +197,19 @@ pub unsafe fn upload_texture(
     gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_MAG_FILTER, gl::LINEAR as GLint);
     gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_S, clamp as GLint);
     gl::TexParameteri(gl::TEXTURE_2D, gl::TEXTURE_WRAP_T, clamp as GLint);
+}
+
+pub unsafe fn upload_depth_texture(texture: GLuint, width: u32, height: u32, data: *const u8) {
+    gl::BindTexture(gl::TEXTURE_2D, texture);
+    gl::TexImage2D(
+        gl::TEXTURE_2D,
+        0,
+        gl::DEPTH24_STENCIL8 as GLint,
+        width as GLsizei,
+        height as GLsizei,
+        0,
+        gl::DEPTH_STENCIL,
+        gl::UNSIGNED_INT_24_8,
+        data as *const _,
+    );
 }

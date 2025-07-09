@@ -98,7 +98,7 @@ impl KawaseScene {
 
             // framebuffers
             let composite_fbs = (RESDIVS.iter().copied())
-                .map(|resdiv| create_framebuffer("composite", gura_size / resdiv))
+                .map(|resdiv| create_framebuffer("composite", gura_size / resdiv, false))
                 .collect::<Vec<_>>();
 
             gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
@@ -424,11 +424,6 @@ impl Drop for KawaseScene {
             gl::DeleteProgram(self.comp_shader);
             gl::DeleteProgram(self.kawase_shader);
             gl::DeleteProgram(self.dither_shader);
-
-            for comp_fb in &self.composite_fbs {
-                gl::DeleteFramebuffers(1, &comp_fb.fbo);
-                gl::DeleteTextures(1, &comp_fb.texture);
-            }
 
             let buffers = &[self.quad_vbo, self.quad_ebo, self.comp_vbo];
             gl::DeleteBuffers(buffers.len() as GLsizei, buffers.as_ptr());

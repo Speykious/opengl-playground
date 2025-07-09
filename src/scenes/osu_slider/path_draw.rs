@@ -4,7 +4,7 @@ use std::f32::consts::{PI, TAU};
 
 use glam::{vec2, Vec2};
 
-use crate::scenes::osu_slider::Vertex;
+use crate::scenes::osu_slider::SliderVertex;
 
 #[derive(Debug, Clone, Copy)]
 struct Line {
@@ -35,7 +35,7 @@ impl Line {
     }
 }
 
-pub fn generate_slider_vertices(path: &[Vec2], radius: f32) -> Vec<Vertex> {
+pub fn generate_slider_vertices(path: &[Vec2], radius: f32) -> Vec<SliderVertex> {
     // Taken from osu.Framework.Graphics.Lines.PathDrawNode.updateVertexBuffer()
 
     // Explanation of the terms "left" and "right":
@@ -140,7 +140,7 @@ pub fn generate_slider_vertices(path: &[Vec2], radius: f32) -> Vec<Vertex> {
     vertices
 }
 
-fn add_segment_quads(vertices: &mut Vec<Vertex>, seg: Line, seg_l: Line, seg_r: Line) {
+fn add_segment_quads(vertices: &mut Vec<SliderVertex>, seg: Line, seg_l: Line, seg_r: Line) {
     // Each segment of the path is actually rendered as 2 quads, being split in half along the approximating line.
     // On this line the depth is 1 instead of 0, which is done in order to properly handle self-overlap using the depth buffer.
     let first_middle_point = seg.a.extend(-1.0);
@@ -149,28 +149,28 @@ fn add_segment_quads(vertices: &mut Vec<Vertex>, seg: Line, seg_l: Line, seg_r: 
     // Each of the quads (mentioned above) is rendered as 2 triangles:
 
     // Outer quad, triangle 1
-    vertices.push(Vertex::new(seg_r.b.extend(0.0), Vec2::ONE));
-    vertices.push(Vertex::new(seg_r.a.extend(0.0), Vec2::ONE));
-    vertices.push(Vertex::new(first_middle_point, Vec2::ZERO));
+    vertices.push(SliderVertex::new(seg_r.b.extend(0.0), Vec2::ONE));
+    vertices.push(SliderVertex::new(seg_r.a.extend(0.0), Vec2::ONE));
+    vertices.push(SliderVertex::new(first_middle_point, Vec2::ZERO));
 
     // Outer quad, triangle 2
-    vertices.push(Vertex::new(first_middle_point, Vec2::ZERO));
-    vertices.push(Vertex::new(second_middle_point, Vec2::ZERO));
-    vertices.push(Vertex::new(seg_r.b.extend(0.0), Vec2::ONE));
+    vertices.push(SliderVertex::new(first_middle_point, Vec2::ZERO));
+    vertices.push(SliderVertex::new(second_middle_point, Vec2::ZERO));
+    vertices.push(SliderVertex::new(seg_r.b.extend(0.0), Vec2::ONE));
 
     // Inner quad, triangle 1
-    vertices.push(Vertex::new(first_middle_point, Vec2::ZERO));
-    vertices.push(Vertex::new(second_middle_point, Vec2::ZERO));
-    vertices.push(Vertex::new(seg_l.b.extend(0.0), Vec2::ONE));
+    vertices.push(SliderVertex::new(first_middle_point, Vec2::ZERO));
+    vertices.push(SliderVertex::new(second_middle_point, Vec2::ZERO));
+    vertices.push(SliderVertex::new(seg_l.b.extend(0.0), Vec2::ONE));
 
     // Inner quad, triangle 2
-    vertices.push(Vertex::new(seg_l.b.extend(0.0), Vec2::ONE));
-    vertices.push(Vertex::new(seg_l.a.extend(0.0), Vec2::ONE));
-    vertices.push(Vertex::new(first_middle_point, Vec2::ZERO));
+    vertices.push(SliderVertex::new(seg_l.b.extend(0.0), Vec2::ONE));
+    vertices.push(SliderVertex::new(seg_l.a.extend(0.0), Vec2::ONE));
+    vertices.push(SliderVertex::new(first_middle_point, Vec2::ZERO));
 }
 
 fn add_segment_caps(
-    vertices: &mut Vec<Vertex>,
+    vertices: &mut Vec<SliderVertex>,
     radius: f32,
     theta_diff: f32,
     seg_l: Line,
@@ -217,10 +217,10 @@ fn add_segment_caps(
 
     for i in 1..=step_count {
         // Center point
-        vertices.push(Vertex::new(origin.extend(-1.0), Vec2::ZERO));
+        vertices.push(SliderVertex::new(origin.extend(-1.0), Vec2::ZERO));
 
         // First outer point
-        vertices.push(Vertex::new(current.extend(0.0), Vec2::ONE));
+        vertices.push(SliderVertex::new(current.extend(0.0), Vec2::ONE));
 
         current = if i < step_count {
             origin + Vec2::from_angle(theta0 + i as f32 * theta_step) * radius
@@ -229,6 +229,6 @@ fn add_segment_caps(
         };
 
         // Second outer point
-        vertices.push(Vertex::new(current.extend(0.0), Vec2::ONE));
+        vertices.push(SliderVertex::new(current.extend(0.0), Vec2::ONE));
     }
 }
