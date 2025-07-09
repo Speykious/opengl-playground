@@ -33,6 +33,7 @@ impl SliderControlPoint {
 pub struct SliderPath {
     pub control_points: Vec<SliderControlPoint>,
     pub length: f64,
+    pub radius: f32,
 }
 
 #[derive(Default)]
