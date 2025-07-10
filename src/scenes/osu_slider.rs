@@ -1,13 +1,15 @@
 use std::mem::{self, offset_of};
+use std::time::{Instant, SystemTime};
 
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-use glam::{ivec2, vec2, Mat4, Vec2, Vec3};
+use glam::{ivec2, vec2, Mat4, Vec2, Vec4};
+use image::ImageFormat;
 use winit::window::Window;
 
-use crate::common_gl::{create_framebuffer, Framebuffer};
+use crate::common_gl::{create_framebuffer, upload_texture, Framebuffer};
 use crate::scenes::osu_slider::slider_path::{SliderCurveType, SliderPath};
 use crate::scenes::{
-    SRC_FRAG_SLIDER, SRC_FRAG_SLIDER_POINT, SRC_FRAG_TEXTURE, SRC_VERT_SCREEN, SRC_VERT_SLIDER,
+    SLIDERBODY1_PNG, SLIDERBODY3_PNG, SRC_FRAG_SLIDER, SRC_FRAG_SLIDER_POINT, SRC_FRAG_TEXTURE, SRC_VERT_SCREEN, SRC_VERT_SLIDER
 };
 use crate::{camera::Camera, common_gl::create_shader_program};
 
@@ -25,15 +27,15 @@ impl SliderVertices {
     fn from_slider_path(slider: &SliderPath, radius: f32, p0: f64, p1: f64) -> Self {
         let ctrl = (slider.control_points.iter())
             .map(|cp| {
-                let uv = match cp.curve_type {
-                    SliderCurveType::Inherit => Vec2::ONE,
-                    SliderCurveType::Bezier => vec2(0.0, 1.0),
-                    SliderCurveType::Catmull => vec2(0.5, 0.5),
-                    SliderCurveType::Linear => vec2(1.0, 0.0),
-                    SliderCurveType::PerfectCircle => vec2(1.0, 0.5),
+                let dist = match cp.curve_type {
+                    SliderCurveType::Inherit => 1.0,
+                    SliderCurveType::Bezier => 0.75,
+                    SliderCurveType::Catmull => 0.5,
+                    SliderCurveType::Linear => 0.25,
+                    SliderCurveType::PerfectCircle => 0.0,
                 };
 
-                SliderVertex::new(cp.vec2().extend(0.0), uv)
+                SliderVertex::new(cp.vec2().extend(0.0).extend(dist))
             })
             .collect::<Vec<_>>();
 
@@ -43,16 +45,13 @@ impl SliderVertices {
 
         let path = (progress_path.iter().enumerate())
             .map(|(i, &p)| {
-                let uv = if i < 1 {
-                    Vec2::ZERO
-                } else if i >= progress_path.len() - 1 {
-                    Vec2::ONE
-                } else {
-                    let v = i as f32 / progress_path.len() as f32;
-                    vec2(v, 1.0 - v)
+                let dist = match () {
+                    _ if i < 1 => 0.0,
+                    _ if i >= progress_path.len() - 1 => 1.0,
+                    _ => i as f32 / progress_path.len() as f32,
                 };
 
-                SliderVertex::new(p.extend(0.0), uv)
+                SliderVertex::new(p.extend(0.0).extend(dist))
             })
             .collect::<Vec<_>>();
 
@@ -77,10 +76,17 @@ pub struct OsuSliderScene {
     screen_vbo: GLuint,
 
     slider_shader: GLuint,
-    u_mvp_slider: GLint,
+    u_slider_mvp: GLint,
+    u_slider_border_color: GLint,
+    u_slider_border_width: GLint,
+    u_slider_radius: GLint,
+    u_slider_texture_progress: GLint,
+    sliderbody_texture: GLuint,
 
     slider_point_shader: GLuint,
-    u_mvp_slider_point: GLint,
+    u_slider_point_mvp: GLint,
+    u_slider_point_is_solid: GLint,
+    u_slider_point_solid_color: GLint,
 
     path_vao: GLuint,
     path_vbo: GLuint,
@@ -112,16 +118,40 @@ impl OsuSliderScene {
             .map(|sp| SliderVertices::from_slider_path(sp, slider_radius, 0.0, 1.0))
             .collect::<Vec<_>>();
 
+        let sliderbody_texture = unsafe {
+            // Sliderbody texture
+            let sliderbody = image::load_from_memory_with_format(SLIDERBODY3_PNG, ImageFormat::Png);
+            let sliderbody = sliderbody.unwrap().into_rgba8();
+
+            let mut sliderbody_texture: GLuint = 0;
+            gl::GenTextures(1, &mut sliderbody_texture);
+            upload_texture(
+                sliderbody_texture,
+                sliderbody.width(),
+                sliderbody.height(),
+                sliderbody.as_ptr(),
+                gl::REPEAT,
+            );
+
+            sliderbody_texture
+        };
+
         unsafe {
             Self::blend(true);
 
             let screen_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_TEXTURE);
 
             let slider_shader = create_shader_program(SRC_VERT_SLIDER, SRC_FRAG_SLIDER);
-            let u_mvp_slider = gl::GetUniformLocation(slider_shader, c"u_mvp".as_ptr());
+            let u_slider_mvp = gl::GetUniformLocation(slider_shader, c"u_mvp".as_ptr());
+            let u_slider_border_color = gl::GetUniformLocation(slider_shader, c"u_border_color".as_ptr());
+            let u_slider_border_width = gl::GetUniformLocation(slider_shader, c"u_border_width".as_ptr());
+            let u_slider_radius = gl::GetUniformLocation(slider_shader, c"u_radius".as_ptr());
+            let u_slider_texture_progress = gl::GetUniformLocation(slider_shader, c"u_texture_progress".as_ptr());
 
             let slider_point_shader = create_shader_program(SRC_VERT_SLIDER, SRC_FRAG_SLIDER_POINT);
-            let u_mvp_slider_point = gl::GetUniformLocation(slider_point_shader, c"u_mvp".as_ptr());
+            let u_slider_point_mvp = gl::GetUniformLocation(slider_point_shader, c"u_mvp".as_ptr());
+            let u_slider_point_is_solid = gl::GetUniformLocation(slider_point_shader, c"u_is_solid".as_ptr());
+            let u_slider_point_solid_color = gl::GetUniformLocation(slider_point_shader, c"u_solid_color".as_ptr());
 
             // screen vertices
             let mut screen_vbo: GLuint = 0;
@@ -189,10 +219,17 @@ impl OsuSliderScene {
                 screen_vbo,
 
                 slider_shader,
-                u_mvp_slider,
+                u_slider_mvp,
+                u_slider_border_color,
+                u_slider_border_width,
+                u_slider_radius,
+                u_slider_texture_progress,
+                sliderbody_texture,
 
                 slider_point_shader,
-                u_mvp_slider_point,
+                u_slider_point_mvp,
+                u_slider_point_is_solid,
+                u_slider_point_solid_color,
 
                 path_vao,
                 path_vbo,
@@ -244,23 +281,25 @@ impl OsuSliderScene {
         #[rustfmt::skip]
         unsafe {
             let size_vertex = mem::size_of::<SliderVertex>() as GLsizei;
-
             let a_position = gl::GetAttribLocation(shader, c"position" .as_ptr()) as GLuint;
-            let a_uv       = gl::GetAttribLocation(shader, c"uv"       .as_ptr()) as GLuint;
-
-            gl::VertexAttribPointer(a_position, 3, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(SliderVertex, position) as _);
-            gl::VertexAttribPointer(a_uv,       2, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(SliderVertex, uv)       as _);
-
+            gl::VertexAttribPointer(a_position, 4, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(SliderVertex, position) as _);
             gl::EnableVertexAttribArray(a_position as GLuint);
-            gl::EnableVertexAttribArray(a_uv       as GLuint);
         };
     }
 
     pub fn draw(&mut self, camera: &Camera, mouse_pos: Vec2) {
-        let p = (mouse_pos.x as f64 / self.viewport.x as f64 - 0.5) / 0.727 + 0.5;
+        let p = (mouse_pos / self.viewport - 0.5) / 0.727 + 0.5;
+
+        let millis = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
+        let q = ((millis % 1000) as u32) as f32 / 1000.0;
+
+        unsafe {
+            gl::UseProgram(self.slider_shader);
+            gl::Uniform1f(self.u_slider_texture_progress, q);
+        }
 
         self.slider_vertices = (self.slider_paths.iter())
-            .map(|sp| SliderVertices::from_slider_path(sp, self.slider_radius, 0.0, p))
+            .map(|sp| SliderVertices::from_slider_path(sp, self.slider_radius, 0.0, p.x as f64))
             .collect::<Vec<_>>();
 
         self.draw_with_clear_color(0.0, 0.0, 0.0, 0.5);
@@ -289,6 +328,7 @@ impl OsuSliderScene {
             // Depth testing for sliders
             gl::BindVertexArray(self.body_vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.body_vbo);
+            gl::BindTexture(gl::TEXTURE_2D, self.sliderbody_texture);
             gl::DrawArrays(gl::TRIANGLES, 0, slider.body.len() as GLsizei);
 
             gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
@@ -333,13 +373,18 @@ impl OsuSliderScene {
             gl::BindVertexArray(self.path_vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.path_vbo);
             gl::PointSize(5.0);
+
+            gl::Uniform1i(self.u_slider_point_is_solid, 1);
             gl::DrawArrays(gl::LINE_STRIP, 0, slider.path.len() as GLsizei);
+            gl::Uniform1i(self.u_slider_point_is_solid, 0);
             gl::DrawArrays(gl::POINTS, 0, slider.path.len() as GLsizei);
 
             gl::BindVertexArray(self.ctrl_vao);
             gl::BindBuffer(gl::ARRAY_BUFFER, self.ctrl_vbo);
             gl::PointSize(10.0);
+            gl::Uniform1i(self.u_slider_point_is_solid, 1);
             gl::DrawArrays(gl::LINE_STRIP, 0, slider.ctrl.len() as GLsizei);
+            gl::Uniform1i(self.u_slider_point_is_solid, 0);
             gl::DrawArrays(gl::POINTS, 0, slider.ctrl.len() as GLsizei);
         }
     }
@@ -350,6 +395,11 @@ impl OsuSliderScene {
 
             gl::ClearColor(r, g, b, a);
             gl::Clear(gl::COLOR_BUFFER_BIT);
+
+            gl::UseProgram(self.slider_shader);
+            gl::Uniform1f(self.u_slider_radius, self.slider_radius);
+            gl::Uniform4f(self.u_slider_border_color, 1.0, 0.2, 0.2, 1.0);
+            gl::Uniform1f(self.u_slider_border_width, 7.27);
 
             for slider in &self.slider_vertices {
                 self.draw_slider_body(slider);
@@ -371,7 +421,7 @@ impl OsuSliderScene {
 
             gl::UseProgram(self.slider_shader);
             gl::UniformMatrix4fv(
-                self.u_mvp_slider,
+                self.u_slider_mvp,
                 1,
                 gl::FALSE,
                 self.matrix.as_ref().as_ptr(),
@@ -379,7 +429,7 @@ impl OsuSliderScene {
 
             gl::UseProgram(self.slider_point_shader);
             gl::UniformMatrix4fv(
-                self.u_mvp_slider_point,
+                self.u_slider_point_mvp,
                 1,
                 gl::FALSE,
                 self.matrix.as_ref().as_ptr(),
@@ -406,13 +456,12 @@ impl Drop for OsuSliderScene {
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 struct SliderVertex {
-    pub position: Vec3,
-    pub uv: Vec2,
+    pub position: Vec4,
 }
 
 impl SliderVertex {
-    pub const fn new(position: Vec3, uv: Vec2) -> Self {
-        Self { position, uv }
+    pub const fn new(position: Vec4) -> Self {
+        Self { position }
     }
 }
 /// Vertex used for the screen framebuffer.

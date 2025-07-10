@@ -1,7 +1,10 @@
 #version 330 core
 precision mediump float;
 
-in vec2 v_uv;
+uniform bool u_is_solid = false;
+uniform vec4 u_solid_color = vec4(1.0);
+
+in float v_dist;
 
 out vec4 FragColor;
 
@@ -45,6 +48,5 @@ vec3 hsl2rgb(vec3 hsl) {
 }
 
 void main() {
-    vec3 color = hsl2rgb(vec3(v_uv.x, 1.0, 0.85));
-    FragColor = vec4(color, 1.0);
+    FragColor = u_is_solid ? u_solid_color : vec4(hsl2rgb(vec3(v_dist, 1.0, 0.85)), 1.0);
 }

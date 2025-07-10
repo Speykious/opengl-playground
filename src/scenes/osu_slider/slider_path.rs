@@ -1,6 +1,8 @@
 use glam::{vec2, Vec2};
 
-use crate::scenes::osu_slider::path_approx::{self, CATMULL_SEGMENT_LENGTH, CIRCULAR_ARC_TOLERANCE};
+use crate::scenes::osu_slider::path_approx::{
+    self, CATMULL_SEGMENT_LENGTH, CIRCULAR_ARC_TOLERANCE,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SliderCurveType {
@@ -19,9 +21,9 @@ pub struct SliderControlPoint {
 }
 
 impl SliderControlPoint {
-	pub const fn new(curve_type: SliderCurveType, x: f32, y: f32) -> Self {
-		Self { curve_type, x, y }
-	}
+    pub const fn new(curve_type: SliderCurveType, x: f32, y: f32) -> Self {
+        Self { curve_type, x, y }
+    }
 }
 
 impl SliderControlPoint {
@@ -132,7 +134,7 @@ impl SliderPath {
 
         let mut calculated_path = Vec::new();
         let mut segment_ends = Vec::new();
-		let mut optimized_length = None;
+        let mut optimized_length = None;
 
         let last_cpindex = self.control_points.len() - 1;
 
@@ -153,9 +155,9 @@ impl SliderPath {
                 let (sub_path, optimized_sub_length) =
                     Self::calculate_sub_path(segment_vertices, segment_type, true);
 
-				if let Some(optimized_sub_length) = optimized_sub_length {
-					*optimized_length.get_or_insert_default() += optimized_sub_length;
-				}
+                if let Some(optimized_sub_length) = optimized_sub_length {
+                    *optimized_length.get_or_insert_default() += optimized_sub_length;
+                }
 
                 // Skip the first vertex if it is the same as the last vertex from the previous segment
                 let skip_first = !calculated_path.is_empty()
@@ -180,9 +182,9 @@ impl SliderPath {
             segment_ends,
         };
 
-		let length = Self::calculate_length(&mut path, optimized_length, Some(self.length));
+        let length = Self::calculate_length(&mut path, optimized_length, Some(self.length));
 
-		Some((path, length))
+        Some((path, length))
     }
 
     fn calculate_sub_path(

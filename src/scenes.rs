@@ -29,6 +29,9 @@ const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("../assets/shaders/texture.frag")
 
 // images
 const GURA_JPG: &[u8] = include_bytes!("../assets/gura.jpg");
+const SLIDERBODY1_PNG: &[u8] = include_bytes!("../assets/sliderbody1.png");
+const SLIDERBODY2_PNG: &[u8] = include_bytes!("../assets/sliderbody2.png");
+const SLIDERBODY3_PNG: &[u8] = include_bytes!("../assets/sliderbody3.png");
 // const BIG_SQUARES_PNG: &[u8] = include_bytes!("../../assets/big-squares.png");
 
 pub enum Scenes {

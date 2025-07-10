@@ -3,12 +3,12 @@ precision mediump float;
 
 uniform mat4 u_mvp;
 
-in vec3 position;
-in vec2 uv;
+// last coordinate is used for distance
+in vec4 position;
 
-out vec2 v_uv;
+out float v_dist;
 
 void main() {
-    gl_Position = u_mvp * vec4(position, 1.0);
-    v_uv = uv;
+    gl_Position = u_mvp * vec4(position.xyz, 1.0);
+    v_dist = position.w;
 }

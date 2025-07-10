@@ -149,24 +149,24 @@ fn add_segment_quads(vertices: &mut Vec<SliderVertex>, seg: Line, seg_l: Line, s
     // Each of the quads (mentioned above) is rendered as 2 triangles:
 
     // Outer quad, triangle 1
-    vertices.push(SliderVertex::new(seg_r.b.extend(0.0), Vec2::ONE));
-    vertices.push(SliderVertex::new(seg_r.a.extend(0.0), Vec2::ONE));
-    vertices.push(SliderVertex::new(first_middle_point, Vec2::ZERO));
+    vertices.push(SliderVertex::new(seg_r.b.extend(0.0).extend(1.0)));
+    vertices.push(SliderVertex::new(seg_r.a.extend(0.0).extend(1.0)));
+    vertices.push(SliderVertex::new(first_middle_point.extend(0.0)));
 
     // Outer quad, triangle 2
-    vertices.push(SliderVertex::new(first_middle_point, Vec2::ZERO));
-    vertices.push(SliderVertex::new(second_middle_point, Vec2::ZERO));
-    vertices.push(SliderVertex::new(seg_r.b.extend(0.0), Vec2::ONE));
+    vertices.push(SliderVertex::new(first_middle_point.extend(0.0)));
+    vertices.push(SliderVertex::new(second_middle_point.extend(0.0)));
+    vertices.push(SliderVertex::new(seg_r.b.extend(0.0).extend(1.0)));
 
     // Inner quad, triangle 1
-    vertices.push(SliderVertex::new(first_middle_point, Vec2::ZERO));
-    vertices.push(SliderVertex::new(second_middle_point, Vec2::ZERO));
-    vertices.push(SliderVertex::new(seg_l.b.extend(0.0), Vec2::ONE));
+    vertices.push(SliderVertex::new(first_middle_point.extend(0.0)));
+    vertices.push(SliderVertex::new(second_middle_point.extend(0.0)));
+    vertices.push(SliderVertex::new(seg_l.b.extend(0.0).extend(1.0)));
 
     // Inner quad, triangle 2
-    vertices.push(SliderVertex::new(seg_l.b.extend(0.0), Vec2::ONE));
-    vertices.push(SliderVertex::new(seg_l.a.extend(0.0), Vec2::ONE));
-    vertices.push(SliderVertex::new(first_middle_point, Vec2::ZERO));
+    vertices.push(SliderVertex::new(seg_l.b.extend(0.0).extend(1.0)));
+    vertices.push(SliderVertex::new(seg_l.a.extend(0.0).extend(1.0)));
+    vertices.push(SliderVertex::new(first_middle_point.extend(0.0)));
 }
 
 fn add_segment_caps(
@@ -217,10 +217,10 @@ fn add_segment_caps(
 
     for i in 1..=step_count {
         // Center point
-        vertices.push(SliderVertex::new(origin.extend(-1.0), Vec2::ZERO));
+        vertices.push(SliderVertex::new(origin.extend(-1.0).extend(0.0)));
 
         // First outer point
-        vertices.push(SliderVertex::new(current.extend(0.0), Vec2::ONE));
+        vertices.push(SliderVertex::new(current.extend(0.0).extend(1.0)));
 
         current = if i < step_count {
             origin + Vec2::from_angle(theta0 + i as f32 * theta_step) * radius
@@ -229,6 +229,6 @@ fn add_segment_caps(
         };
 
         // Second outer point
-        vertices.push(SliderVertex::new(current.extend(0.0), Vec2::ONE));
+        vertices.push(SliderVertex::new(current.extend(0.0).extend(1.0)));
     }
 }
