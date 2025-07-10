@@ -1,5 +1,5 @@
 use std::mem::{self, offset_of};
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 
 use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
 use glam::{ivec2, vec2, Mat4, Vec2, Vec4};
@@ -9,7 +9,8 @@ use winit::window::Window;
 use crate::common_gl::{create_framebuffer, upload_texture, Framebuffer};
 use crate::scenes::osu_slider::slider_path::{SliderCurveType, SliderPath};
 use crate::scenes::{
-    SLIDERBODY1_PNG, SLIDERBODY3_PNG, SRC_FRAG_SLIDER, SRC_FRAG_SLIDER_POINT, SRC_FRAG_TEXTURE, SRC_VERT_SCREEN, SRC_VERT_SLIDER
+    SLIDERBODY3_PNG, SRC_FRAG_SLIDER, SRC_FRAG_SLIDER_POINT, SRC_FRAG_TEXTURE, SRC_VERT_SCREEN,
+    SRC_VERT_SLIDER,
 };
 use crate::{camera::Camera, common_gl::create_shader_program};
 
@@ -111,7 +112,7 @@ impl OsuSliderScene {
 
             // sliders::tsd(),
             // sliders::good_random(),
-            // sliders::euro(),
+            sliders::euro(),
         ];
 
         let slider_vertices = (slider_paths.iter())
@@ -143,15 +144,20 @@ impl OsuSliderScene {
 
             let slider_shader = create_shader_program(SRC_VERT_SLIDER, SRC_FRAG_SLIDER);
             let u_slider_mvp = gl::GetUniformLocation(slider_shader, c"u_mvp".as_ptr());
-            let u_slider_border_color = gl::GetUniformLocation(slider_shader, c"u_border_color".as_ptr());
-            let u_slider_border_width = gl::GetUniformLocation(slider_shader, c"u_border_width".as_ptr());
+            let u_slider_border_color =
+                gl::GetUniformLocation(slider_shader, c"u_border_color".as_ptr());
+            let u_slider_border_width =
+                gl::GetUniformLocation(slider_shader, c"u_border_width".as_ptr());
             let u_slider_radius = gl::GetUniformLocation(slider_shader, c"u_radius".as_ptr());
-            let u_slider_texture_progress = gl::GetUniformLocation(slider_shader, c"u_texture_progress".as_ptr());
+            let u_slider_texture_progress =
+                gl::GetUniformLocation(slider_shader, c"u_texture_progress".as_ptr());
 
             let slider_point_shader = create_shader_program(SRC_VERT_SLIDER, SRC_FRAG_SLIDER_POINT);
             let u_slider_point_mvp = gl::GetUniformLocation(slider_point_shader, c"u_mvp".as_ptr());
-            let u_slider_point_is_solid = gl::GetUniformLocation(slider_point_shader, c"u_is_solid".as_ptr());
-            let u_slider_point_solid_color = gl::GetUniformLocation(slider_point_shader, c"u_solid_color".as_ptr());
+            let u_slider_point_is_solid =
+                gl::GetUniformLocation(slider_point_shader, c"u_is_solid".as_ptr());
+            let u_slider_point_solid_color =
+                gl::GetUniformLocation(slider_point_shader, c"u_solid_color".as_ptr());
 
             // screen vertices
             let mut screen_vbo: GLuint = 0;
@@ -290,7 +296,10 @@ impl OsuSliderScene {
     pub fn draw(&mut self, camera: &Camera, mouse_pos: Vec2) {
         let p = (mouse_pos / self.viewport - 0.5) / 0.727 + 0.5;
 
-        let millis = SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).unwrap().as_millis();
+        let millis = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap()
+            .as_millis();
         let q = ((millis % 1000) as u32) as f32 / 1000.0;
 
         unsafe {
