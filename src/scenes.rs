@@ -3,6 +3,8 @@ pub mod kawase;
 pub mod osu_slider;
 pub mod round_quads;
 
+use std::rc::Rc;
+
 use blurring::BlurringScene;
 use kawase::KawaseScene;
 use round_quads::RoundQuadsScene;
@@ -15,17 +17,17 @@ use crate::camera::Camera;
 use crate::scenes::osu_slider::OsuSliderScene;
 
 // shaders
-const SRC_FRAG_BLUR: &[u8] = include_bytes!("../assets/shaders/blur.frag");
-const SRC_FRAG_DITHER: &[u8] = include_bytes!("../assets/shaders/dither.frag");
-const SRC_FRAG_KAWASE: &[u8] = include_bytes!("../assets/shaders/kawase.frag");
-const SRC_VERT_QUAD: &[u8] = include_bytes!("../assets/shaders/quad.vert");
-const SRC_VERT_ROUND_RECT: &[u8] = include_bytes!("../assets/shaders/round-rect.vert");
-const SRC_FRAG_ROUND_RECT: &[u8] = include_bytes!("../assets/shaders/round-rect.frag");
-const SRC_VERT_SCREEN: &[u8] = include_bytes!("../assets/shaders/screen.vert");
-const SRC_VERT_SLIDER: &[u8] = include_bytes!("../assets/shaders/slider.vert");
-const SRC_FRAG_SLIDER: &[u8] = include_bytes!("../assets/shaders/slider.frag");
-const SRC_FRAG_SLIDER_POINT: &[u8] = include_bytes!("../assets/shaders/slider_point.frag");
-const SRC_FRAG_TEXTURE: &[u8] = include_bytes!("../assets/shaders/texture.frag");
+const SRC_FRAG_BLUR: &str = include_str!("../assets/shaders/blur.frag");
+const SRC_FRAG_DITHER: &str = include_str!("../assets/shaders/dither.frag");
+const SRC_FRAG_KAWASE: &str = include_str!("../assets/shaders/kawase.frag");
+const SRC_VERT_QUAD: &str = include_str!("../assets/shaders/quad.vert");
+const SRC_VERT_ROUND_RECT: &str = include_str!("../assets/shaders/round-rect.vert");
+const SRC_FRAG_ROUND_RECT: &str = include_str!("../assets/shaders/round-rect.frag");
+const SRC_VERT_SCREEN: &str = include_str!("../assets/shaders/screen.vert");
+const SRC_VERT_SLIDER: &str = include_str!("../assets/shaders/slider.vert");
+const SRC_FRAG_SLIDER: &str = include_str!("../assets/shaders/slider.frag");
+const SRC_FRAG_SLIDER_POINT: &str = include_str!("../assets/shaders/slider_point.frag");
+const SRC_FRAG_TEXTURE: &str = include_str!("../assets/shaders/texture.frag");
 
 // images
 const GURA_JPG: &[u8] = include_bytes!("../assets/gura.jpg");
@@ -42,16 +44,16 @@ pub enum Scenes {
 }
 
 impl Scenes {
-    pub fn new(window: &Window) -> Self {
-        Self::OsuSlider(OsuSliderScene::new(window))
+    pub fn new(gl: Rc<glow::Context>, window: &Window) -> Self {
+        Self::OsuSlider(OsuSliderScene::new(gl, window))
     }
 
-    pub fn switch_scene(&mut self, window: &Window, keycode: Key<SmolStr>) {
+    pub fn switch_scene(&mut self, gl: Rc<glow::Context>, window: &Window, keycode: Key<SmolStr>) {
         match keycode {
-            Key::Named(NamedKey::F1) => *self = Self::RoundQuads(RoundQuadsScene::new(window)),
-            Key::Named(NamedKey::F2) => *self = Self::Blurring(BlurringScene::new(window)),
-            Key::Named(NamedKey::F3) => *self = Self::Kawase(KawaseScene::new(window)),
-            Key::Named(NamedKey::F4) => *self = Self::OsuSlider(OsuSliderScene::new(window)),
+            Key::Named(NamedKey::F1) => *self = Self::RoundQuads(RoundQuadsScene::new(gl, window)),
+            Key::Named(NamedKey::F2) => *self = Self::Blurring(BlurringScene::new(gl, window)),
+            Key::Named(NamedKey::F3) => *self = Self::Kawase(KawaseScene::new(gl, window)),
+            Key::Named(NamedKey::F4) => *self = Self::OsuSlider(OsuSliderScene::new(gl, window)),
             _ => (),
         }
     }
@@ -61,7 +63,7 @@ impl Scenes {
             Self::RoundQuads(_) => {}
             Self::Blurring(scene) => scene.on_key(keycode),
             Self::Kawase(scene) => scene.on_key(keycode),
-            Self::OsuSlider(_) => {},
+            Self::OsuSlider(_) => {}
         }
     }
 

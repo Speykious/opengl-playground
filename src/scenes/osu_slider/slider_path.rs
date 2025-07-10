@@ -1,8 +1,6 @@
-use glam::{vec2, Vec2};
+use glam::{Vec2, vec2};
 
-use crate::scenes::osu_slider::path_approx::{
-    self, CATMULL_SEGMENT_LENGTH, CIRCULAR_ARC_TOLERANCE,
-};
+use crate::scenes::osu_slider::path_approx::{self, CATMULL_SEGMENT_LENGTH, CIRCULAR_ARC_TOLERANCE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum SliderCurveType {
@@ -73,24 +71,14 @@ impl SliderPath {
             i += 1;
         }
 
-        path.push(Self::interpolate_vertices(
-            calculated_path,
-            calculated_length,
-            i,
-            d0,
-        ));
+        path.push(Self::interpolate_vertices(calculated_path, calculated_length, i, d0));
 
         while i < calculated_path.points.len() && calculated_length.cumulative_length[i] < d1 {
             path.push(calculated_path.points[i]);
             i += 1;
         }
 
-        path.push(Self::interpolate_vertices(
-            calculated_path,
-            calculated_length,
-            i,
-            d1,
-        ));
+        path.push(Self::interpolate_vertices(calculated_path, calculated_length, i, d1));
 
         path
     }
@@ -152,17 +140,15 @@ impl SliderPath {
             if segment_vertices.len() == 1 {
                 calculated_path.push(segment_vertices[0].vec2());
             } else if segment_vertices.len() > 1 {
-                let (sub_path, optimized_sub_length) =
-                    Self::calculate_sub_path(segment_vertices, segment_type, true);
+                let (sub_path, optimized_sub_length) = Self::calculate_sub_path(segment_vertices, segment_type, true);
 
                 if let Some(optimized_sub_length) = optimized_sub_length {
                     *optimized_length.get_or_insert_default() += optimized_sub_length;
                 }
 
                 // Skip the first vertex if it is the same as the last vertex from the previous segment
-                let skip_first = !calculated_path.is_empty()
-                    && !sub_path.is_empty()
-                    && calculated_path.last() == Some(&sub_path[0]);
+                let skip_first =
+                    !calculated_path.is_empty() && !sub_path.is_empty() && calculated_path.last() == Some(&sub_path[0]);
                 let sub_path_start = if skip_first { 1 } else { 0 };
 
                 calculated_path.extend_from_slice(&sub_path[sub_path_start..]);
@@ -195,10 +181,7 @@ impl SliderPath {
         'curve_match: {
             match segment_type {
                 SliderCurveType::Inherit | SliderCurveType::Linear => {
-                    return (
-                        path_approx::linear_to_piecewise_linear(segment_vertices),
-                        None,
-                    );
+                    return (path_approx::linear_to_piecewise_linear(segment_vertices), None);
                 }
                 SliderCurveType::PerfectCircle => {
                     if segment_vertices.len() != 3 {
@@ -214,11 +197,8 @@ impl SliderPath {
                     let sub_points = match carps.radius as f64 * 2.0 <= CIRCULAR_ARC_TOLERANCE {
                         true => 2,
                         false => 2.max(
-                            (carps.theta_range
-                                / (2.0
-                                    * (1.0 - (CIRCULAR_ARC_TOLERANCE / carps.radius as f64))
-                                        .acos()))
-                            .ceil() as usize,
+                            (carps.theta_range / (2.0 * (1.0 - (CIRCULAR_ARC_TOLERANCE / carps.radius as f64)).acos()))
+                                .ceil() as usize,
                         ),
                     };
 
@@ -269,10 +249,7 @@ impl SliderPath {
                         length_removed_since_start += sub_path[i - 1].distance(sub_path[i]) as f64;
 
                         // Either 6px from the start, the last vertex at every knot, or the end of the path.
-                        if dist_from_start > 6.0
-                            || (i + 1) % CATMULL_SEGMENT_LENGTH == 0
-                            || i == sub_path.len() - 1
-                        {
+                        if dist_from_start > 6.0 || (i + 1) % CATMULL_SEGMENT_LENGTH == 0 || i == sub_path.len() - 1 {
                             optimized_path.push(sub_path[i]);
                             optimized_length += length_removed_since_start - dist_from_start;
 
@@ -287,10 +264,7 @@ impl SliderPath {
             }
         }
 
-        (
-            path_approx::bezier_to_piecewise_linear(segment_vertices),
-            None,
-        )
+        (path_approx::bezier_to_piecewise_linear(segment_vertices), None)
     }
 
     pub fn calculate_length(
@@ -334,10 +308,7 @@ impl SliderPath {
 
                 if calculated_length > expected_distance {
                     // The path will be shortened further, in which case we should trim any more unnecessary lengths and their associated path segments
-                    while cumulative_length
-                        .last()
-                        .is_some_and(|&l| l >= expected_distance)
-                    {
+                    while cumulative_length.last().is_some_and(|&l| l >= expected_distance) {
                         cumulative_length.pop();
                         cpth.pop();
                     }
@@ -353,8 +324,8 @@ impl SliderPath {
                 // The direction of the segment to shorten or lengthen
                 let dir = (cpth[cpth_len - 1] - cpth[cpth_len - 2]).normalize();
 
-                cpth[cpth_len - 1] = cpth[cpth_len - 2]
-                    + dir * (expected_distance - cumulative_length.last().unwrap()) as f32;
+                cpth[cpth_len - 1] =
+                    cpth[cpth_len - 2] + dir * (expected_distance - cumulative_length.last().unwrap()) as f32;
 
                 cumulative_length.push(expected_distance);
             }

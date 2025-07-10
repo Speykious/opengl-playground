@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use crate::camera::Camera;
 
-use glam::{vec2, Vec2};
+use glam::{Vec2, vec2};
 use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
 
 pub struct SceneController {
@@ -56,8 +56,7 @@ impl SceneController {
 
         // Mouse dragging
         if self.mouse_state == ElementState::Pressed {
-            self.camera.position =
-                self.camera_pos + (self.mouse_pos - self.mouse_pos_held) / self.camera.scale;
+            self.camera.position = self.camera_pos + (self.mouse_pos - self.mouse_pos_held) / self.camera.scale;
         }
 
         // Frame interval

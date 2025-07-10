@@ -1,17 +1,25 @@
 [package]
 name = "opengl-playground"
 version = "0.1.0"
-edition = "2021"
+edition = "2024"
 
 [dependencies]
-gl = "0.14"
+
+# graphics
+glow = "0.16"
 glam = "0.30"
 glutin = "0.32"
 glutin-winit = "0.5"
-image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
-rand = "0.9"
 winit = { version = "0.30", default-features = false, features = [
 	"rwh_06",
 	"x11",
 	"wayland",
 ] }
+
+# misc
+image = { version = "0.25", default-features = false, features = ["jpeg", "png"] }
+rand = "0.9"
+
+# logging
+tracing = "0.1"
+tracing-subscriber = "0.3"

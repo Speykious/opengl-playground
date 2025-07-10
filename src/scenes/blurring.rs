@@ -1,14 +1,17 @@
 use std::f32::consts::PI;
+use std::rc::Rc;
 use std::{mem, time::Instant};
 
-use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-use glam::{uvec2, vec2, Mat4, Vec2};
-use image::ImageFormat;
+use glam::{Mat4, Vec2, uvec2, vec2};
+use glow::HasContext;
+use image::{EncodableLayout, ImageFormat};
 use winit::keyboard::{Key, NamedKey, SmolStr};
 use winit::{dpi::PhysicalSize, window::Window};
 
 use crate::camera::Camera;
-use crate::common_gl::{create_framebuffer, create_shader_program, upload_texture, Framebuffer};
+use crate::common::{
+    Framebuffer, TextureWrapping, create_framebuffer, create_shader_program, slice_as_bytes, upload_texture,
+};
 
 use super::{SRC_FRAG_BLUR, SRC_FRAG_DITHER, SRC_FRAG_TEXTURE, SRC_VERT_QUAD, SRC_VERT_SCREEN};
 
@@ -26,27 +29,29 @@ struct BlurParams {
 }
 
 pub struct BlurringScene {
+    gl: Rc<glow::Context>,
+
     matrix: Mat4,
     viewport: Vec2,
 
-    quad_shader: GLuint,
-    quad_vao: GLuint,
-    quad_vbo: GLuint,
-    quad_ebo: GLuint,
+    quad_shader: glow::Program,
+    quad_vao: glow::VertexArray,
+    quad_vbo: glow::Buffer,
+    quad_ebo: glow::Buffer,
 
     composite_fbs: Vec<(Framebuffer, Framebuffer)>,
-    comp_vao: GLuint,
-    comp_vbo: GLuint,
-    comp_shader: GLuint,
-    blur_shader: GLuint,
-    dither_shader: GLuint,
+    comp_vao: glow::VertexArray,
+    comp_vbo: glow::Buffer,
+    comp_shader: glow::Program,
+    blur_shader: glow::Program,
+    dither_shader: glow::Program,
 
-    gura_texture: GLuint,
+    gura_texture: glow::Texture,
 
-    u_mvp_quad: GLint,
-    u_mvp_dither: GLint,
-    u_direction: GLint,
-    u_kernel_size: GLint,
+    u_mvp_quad: glow::UniformLocation,
+    u_mvp_dither: glow::UniformLocation,
+    u_direction: glow::UniformLocation,
+    u_kernel_size: glow::UniformLocation,
 
     blur: BlurParams,
 
@@ -56,7 +61,7 @@ pub struct BlurringScene {
 }
 
 impl BlurringScene {
-    pub fn new(window: &Window) -> Self {
+    pub fn new(gl: Rc<glow::Context>, window: &Window) -> Self {
         let PhysicalSize { width, height } = window.inner_size();
         let viewport = Vec2::new(width as f32, height as f32);
 
@@ -66,14 +71,14 @@ impl BlurringScene {
             // let gura = image::load_from_memory_with_format(BIG_SQUARES_PNG, ImageFormat::Png);
             let gura = gura.unwrap().into_rgba8();
 
-            let mut gura_texture: GLuint = 0;
-            gl::GenTextures(1, &mut gura_texture);
+            let gura_texture = gl.create_texture().unwrap();
             upload_texture(
+                &gl,
                 gura_texture,
                 gura.width(),
                 gura.height(),
-                gura.as_ptr(),
-                gl::CLAMP_TO_BORDER,
+                Some(gura.as_bytes()),
+                TextureWrapping::ClampToBorder,
             );
 
             (gura, gura_texture)
@@ -96,79 +101,79 @@ impl BlurringScene {
 
         unsafe {
             // Normal blending
-            gl::Enable(gl::BLEND);
-            gl::BlendEquation(gl::FUNC_ADD);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl.enable(glow::BLEND);
+            gl.blend_func_separate(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::SRC_ALPHA, glow::ONE);
+            gl.blend_equation_separate(glow::FUNC_ADD, glow::FUNC_ADD);
 
             // framebuffers
             let composite_fbs = (RESDIVS.iter().copied())
                 .map(|resdiv| {
                     (
-                        create_framebuffer("composite", gura_size / resdiv, false),
-                        create_framebuffer("ping_pong", gura_size / resdiv, false),
+                        create_framebuffer(
+                            &gl,
+                            "composite",
+                            gura_size / resdiv,
+                            TextureWrapping::ClampToBorder,
+                            false,
+                        ),
+                        create_framebuffer(
+                            &gl,
+                            "ping_pong",
+                            gura_size / resdiv,
+                            TextureWrapping::ClampToBorder,
+                            false,
+                        ),
                     )
                 })
                 .collect::<Vec<_>>();
 
-            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
 
             // quad vertices
-            let mut quad_vao: GLuint = 0;
-            gl::GenVertexArrays(1, &mut quad_vao);
-            gl::BindVertexArray(quad_vao);
+            let quad_vao = gl.create_vertex_array().unwrap();
+            gl.bind_vertex_array(Some(quad_vao));
 
-            let mut quad_vbo: GLuint = 0;
-            gl::GenBuffers(1, &mut quad_vbo);
-            gl::BindBuffer(gl::ARRAY_BUFFER, quad_vbo);
-            gl::BufferData(
-                gl::ARRAY_BUFFER,
-                mem::size_of_val(vertices.as_slice()) as GLsizeiptr,
-                vertices.as_slice().as_ptr() as *const _,
-                gl::DYNAMIC_DRAW,
+            let quad_vbo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(quad_vbo));
+            gl.buffer_data_u8_slice(
+                glow::ARRAY_BUFFER,
+                slice_as_bytes(vertices.as_slice()),
+                glow::DYNAMIC_DRAW,
             );
 
-            let mut quad_ebo: GLuint = 0;
-            gl::GenBuffers(1, &mut quad_ebo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, quad_ebo);
-            gl::BufferData(
-                gl::ELEMENT_ARRAY_BUFFER,
-                mem::size_of_val(indices.as_slice()) as GLsizeiptr,
-                indices.as_slice().as_ptr() as *const _,
-                gl::STATIC_DRAW,
+            let quad_ebo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(quad_ebo));
+            gl.buffer_data_u8_slice(
+                glow::ELEMENT_ARRAY_BUFFER,
+                slice_as_bytes(indices.as_slice()),
+                glow::STATIC_DRAW,
             );
 
             // quad shaders
-            let quad_shader = create_shader_program(SRC_VERT_QUAD, SRC_FRAG_TEXTURE);
-            let u_mvp_quad = gl::GetUniformLocation(quad_shader, c"u_mvp".as_ptr());
-            Self::set_pos_uv_vertex_attribs(quad_shader);
+            let quad_shader = create_shader_program(&gl, SRC_VERT_QUAD, SRC_FRAG_TEXTURE);
+            let u_mvp_quad = gl.get_uniform_location(quad_shader, "u_mvp").unwrap();
+            Self::set_pos_uv_vertex_attribs(&gl, quad_shader);
 
-            let dither_shader = create_shader_program(SRC_VERT_QUAD, SRC_FRAG_DITHER);
-            let u_mvp_dither = gl::GetUniformLocation(dither_shader, c"u_mvp".as_ptr());
-            Self::set_pos_uv_vertex_attribs(dither_shader);
+            let dither_shader = create_shader_program(&gl, SRC_VERT_QUAD, SRC_FRAG_DITHER);
+            let u_mvp_dither = gl.get_uniform_location(dither_shader, "u_mvp").unwrap();
+            Self::set_pos_uv_vertex_attribs(&gl, dither_shader);
 
             // compositing vertices
-            let mut comp_vao: GLuint = 0;
-            gl::GenVertexArrays(1, &mut comp_vao);
-            gl::BindVertexArray(comp_vao);
+            let comp_vao = gl.create_vertex_array().unwrap();
+            gl.bind_vertex_array(Some(comp_vao));
 
-            let mut comp_vbo: GLuint = 0;
-            gl::GenBuffers(1, &mut comp_vbo);
-            gl::BindBuffer(gl::ARRAY_BUFFER, comp_vbo);
-            gl::BufferData(
-                gl::ARRAY_BUFFER,
-                mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
-                SCREEN_VERTICES.as_ptr() as *const _,
-                gl::DYNAMIC_DRAW,
-            );
+            let comp_vbo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(comp_vbo));
+            gl.buffer_data_u8_slice(glow::ARRAY_BUFFER, slice_as_bytes(SCREEN_VERTICES), glow::DYNAMIC_DRAW);
 
             // compositing shaders
-            let comp_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_TEXTURE);
-            Self::set_pos_uv_vertex_attribs(comp_shader);
+            let comp_shader = create_shader_program(&gl, SRC_VERT_SCREEN, SRC_FRAG_TEXTURE);
+            Self::set_pos_uv_vertex_attribs(&gl, comp_shader);
 
-            let blur_shader = create_shader_program(SRC_VERT_SCREEN, SRC_FRAG_BLUR);
-            let u_direction = gl::GetUniformLocation(blur_shader, c"u_direction".as_ptr());
-            let u_kernel_size = gl::GetUniformLocation(blur_shader, c"u_kernel_size".as_ptr());
-            Self::set_pos_uv_vertex_attribs(blur_shader);
+            let blur_shader = create_shader_program(&gl, SRC_VERT_SCREEN, SRC_FRAG_BLUR);
+            let u_direction = gl.get_uniform_location(blur_shader, "u_direction").unwrap();
+            let u_kernel_size = gl.get_uniform_location(blur_shader, "u_kernel_size").unwrap();
+            Self::set_pos_uv_vertex_attribs(&gl, blur_shader);
 
             // default blur parameters
             let blur = BlurParams {
@@ -180,6 +185,8 @@ impl BlurringScene {
             };
 
             Self {
+                gl,
+
                 matrix: Mat4::default(),
                 viewport,
 
@@ -211,23 +218,23 @@ impl BlurringScene {
         }
     }
 
-    unsafe fn set_pos_uv_vertex_attribs(shader: GLuint) {
+    unsafe fn set_pos_uv_vertex_attribs(gl: &glow::Context, shader: glow::Program) {
         // Both `screen.vert` and `quad.vert` have the same vertex
         // attributes, so I'm using this function for all shaders.
 
-        const SIZE_VERTEX: GLsizei = mem::size_of::<Vertex>() as GLsizei;
-        const SIZE_F32: GLsizei = mem::size_of::<f32>() as GLsizei;
+        let size_vertex = mem::size_of::<Vertex>() as i32;
+        let size_f32 = mem::size_of::<f32>() as i32;
 
         #[rustfmt::skip]
-        {
-            let a_position = gl::GetAttribLocation(shader, c"position" .as_ptr()) as GLuint;
-            let a_uv       = gl::GetAttribLocation(shader, c"uv"       .as_ptr()) as GLuint;
+        unsafe {
+            let a_position = gl.get_attrib_location(shader, "position").unwrap();
+            let a_uv       = gl.get_attrib_location(shader, "uv").unwrap();
 
-            gl::VertexAttribPointer(a_position, 2, gl::FLOAT, gl::FALSE, SIZE_VERTEX,  0             as _);
-            gl::VertexAttribPointer(a_uv,       2, gl::FLOAT, gl::FALSE, SIZE_VERTEX, (2 * SIZE_F32) as _);
+            gl.vertex_attrib_pointer_f32(a_position, 2, glow::FLOAT, false, size_vertex, 0           );
+            gl.vertex_attrib_pointer_f32(a_uv,       2, glow::FLOAT, false, size_vertex, 2 * size_f32);
 
-            gl::EnableVertexAttribArray(a_position as GLuint);
-            gl::EnableVertexAttribArray(a_uv       as GLuint);
+            gl.enable_vertex_attrib_array(a_position);
+            gl.enable_vertex_attrib_array(a_uv);
         };
     }
 
@@ -240,8 +247,7 @@ impl BlurringScene {
                 self.blur.kernel = (self.blur.kernel - 1).max(0);
             }
             Key::Named(NamedKey::ArrowRight) => {
-                self.blur.radius =
-                    (self.blur.radius + 0.1).min(*RESDIVS.last().unwrap() as f32 / 2.0);
+                self.blur.radius = (self.blur.radius + 0.1).min(*RESDIVS.last().unwrap() as f32 / 2.0);
             }
             Key::Named(NamedKey::ArrowLeft) => {
                 self.blur.radius = (self.blur.radius - 0.1).max(0.0);
@@ -264,17 +270,9 @@ impl BlurringScene {
             _ => return,
         };
 
-        let mode = if self.blur.is_diagonal {
-            "diagonal"
-        } else {
-            "vert/horz"
-        };
+        let mode = if self.blur.is_diagonal { "diagonal" } else { "vert/horz" };
 
-        let dither_mode = if self.blur.is_dithered {
-            " dithering"
-        } else {
-            ""
-        };
+        let dither_mode = if self.blur.is_dithered { " dithering" } else { "" };
 
         println!(
             "blur config: k={} r={:.2} l={} {}{}",
@@ -288,7 +286,9 @@ impl BlurringScene {
         self.draw_with_clear_color(0.0, 0.2, 0.15, 0.5);
     }
 
-    fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
+    fn draw_with_clear_color(&self, r: f32, g: f32, b: f32, a: f32) {
+        let gl = &self.gl;
+
         unsafe {
             let texture = if self.blur.layers == 0 {
                 self.gura_texture
@@ -297,33 +297,24 @@ impl BlurringScene {
 
                 // draw Gura to framebuffer
                 {
-                    gl::BindFramebuffer(gl::FRAMEBUFFER, input_fb.fbo);
-                    gl::Viewport(0, 0, input_fb.size.x as i32, input_fb.size.y as i32);
+                    gl.bind_framebuffer(glow::FRAMEBUFFER, Some(input_fb.fbo));
+                    gl.viewport(0, 0, input_fb.size.x as i32, input_fb.size.y as i32);
 
-                    gl::ClearColor(0.0, 0.0, 0.0, 0.0);
-                    gl::Clear(gl::COLOR_BUFFER_BIT);
-                    gl::UseProgram(self.comp_shader);
+                    gl.clear_color(0.0, 0.0, 0.0, 0.0);
+                    gl.clear(glow::COLOR_BUFFER_BIT);
+                    gl.use_program(Some(self.comp_shader));
 
-                    gl::BindVertexArray(self.comp_vao);
-                    gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
-                    gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
-                    gl::BufferSubData(
-                        gl::ARRAY_BUFFER,
-                        0,
-                        mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
-                        SCREEN_VERTICES.as_ptr() as *const _,
-                    );
+                    gl.bind_vertex_array(Some(self.comp_vao));
+                    gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.comp_vbo));
+                    gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
+                    gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, slice_as_bytes(SCREEN_VERTICES));
 
-                    gl::BindTexture(gl::TEXTURE_2D, self.gura_texture);
-                    gl::ActiveTexture(gl::TEXTURE0);
-                    gl::DrawArrays(gl::TRIANGLES, 0, 6);
+                    gl.bind_texture(glow::TEXTURE_2D, Some(self.gura_texture));
+                    gl.active_texture(glow::TEXTURE0);
+                    gl.draw_arrays(glow::TRIANGLES, 0, 6);
                 }
 
-                let angles: &[f32] = if self.blur.is_diagonal {
-                    &[PI / 4.0]
-                } else {
-                    &[0.0]
-                };
+                let angles: &[f32] = if self.blur.is_diagonal { &[PI / 4.0] } else { &[0.0] };
 
                 // blur at half-resolution, then quarter-res, then eighth-res, ...
                 for fbi in 0..self.blur.layers {
@@ -358,28 +349,23 @@ impl BlurringScene {
 
             // draw framebuffer to screen as quad
             {
-                gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
-                gl::Viewport(0, 0, self.viewport.x as i32, self.viewport.y as i32);
+                gl.bind_framebuffer(glow::FRAMEBUFFER, None);
+                gl.viewport(0, 0, self.viewport.x as i32, self.viewport.y as i32);
 
-                gl::ClearColor(r, g, b, a);
-                gl::Clear(gl::COLOR_BUFFER_BIT);
+                gl.clear_color(r, g, b, a);
+                gl.clear(glow::COLOR_BUFFER_BIT);
                 if self.blur.is_dithered {
-                    gl::UseProgram(self.dither_shader);
+                    gl.use_program(Some(self.dither_shader));
                 } else {
-                    gl::UseProgram(self.quad_shader);
+                    gl.use_program(Some(self.quad_shader));
                 }
 
-                gl::BindVertexArray(self.quad_vao);
-                gl::BindBuffer(gl::ARRAY_BUFFER, self.quad_vbo);
-                gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.quad_ebo);
+                gl.bind_vertex_array(Some(self.quad_vao));
+                gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.quad_vbo));
+                gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(self.quad_ebo));
 
-                gl::BindTexture(gl::TEXTURE_2D, texture);
-                gl::DrawElements(
-                    gl::TRIANGLES,
-                    mem::size_of_val(self.indices.as_slice()) as GLsizei,
-                    gl::UNSIGNED_INT,
-                    std::ptr::null(),
-                );
+                gl.bind_texture(glow::TEXTURE_2D, Some(texture));
+                gl.draw_elements(glow::TRIANGLES, self.indices.len() as i32 * 6, glow::UNSIGNED_INT, 0);
             }
         }
     }
@@ -391,106 +377,98 @@ impl BlurringScene {
         composite_fb: &'a Framebuffer,
         ping_pong_fb: &Framebuffer,
     ) -> &'a Framebuffer {
+        let gl = &self.gl;
+
         // draw framebuffer to ping-pong framebuffer, with X-blurring
         unsafe {
-            gl::BindFramebuffer(gl::FRAMEBUFFER, ping_pong_fb.fbo);
-            gl::Viewport(0, 0, ping_pong_fb.size.x as i32, ping_pong_fb.size.y as i32);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(ping_pong_fb.fbo));
+            gl.viewport(0, 0, ping_pong_fb.size.x as i32, ping_pong_fb.size.y as i32);
 
-            gl::ClearColor(0.0, 0.0, 0.0, 0.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-            gl::UseProgram(self.blur_shader);
+            gl.clear_color(0.0, 0.0, 0.0, 0.0);
+            gl.clear(glow::COLOR_BUFFER_BIT);
+            gl.use_program(Some(self.blur_shader));
 
-            gl::Uniform1i(self.u_kernel_size, self.blur.kernel);
-            gl::Uniform2f(
-                self.u_direction,
+            gl.uniform_1_i32(Some(&self.u_kernel_size), self.blur.kernel);
+            gl.uniform_2_f32(
+                Some(&self.u_direction),
                 angle.cos() * self.blur.radius,
                 angle.sin() * self.blur.radius,
             );
 
-            gl::BindVertexArray(self.comp_vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
-            gl::BufferSubData(
-                gl::ARRAY_BUFFER,
-                0,
-                mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
-                SCREEN_VERTICES.as_ptr() as *const _,
-            );
+            gl.bind_vertex_array(Some(self.comp_vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.comp_vbo));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
+            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, slice_as_bytes(SCREEN_VERTICES));
 
-            gl::BindTexture(gl::TEXTURE_2D, from_fb.texture);
-            gl::DrawArrays(gl::TRIANGLES, 0, 6);
+            gl.bind_texture(glow::TEXTURE_2D, Some(from_fb.texture));
+            gl.draw_arrays(glow::TRIANGLES, 0, 6);
         }
 
         // draw ping-pong framebuffer to framebuffer, with Y-blurring
         let angle = angle + PI / 2.0;
         unsafe {
-            gl::BindFramebuffer(gl::FRAMEBUFFER, composite_fb.fbo);
-            gl::Viewport(0, 0, composite_fb.size.x as i32, composite_fb.size.y as i32);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(composite_fb.fbo));
+            gl.viewport(0, 0, composite_fb.size.x as i32, composite_fb.size.y as i32);
 
-            gl::ClearColor(0.0, 0.0, 0.0, 0.0);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
-            gl::UseProgram(self.blur_shader);
+            gl.clear_color(0.0, 0.0, 0.0, 0.0);
+            gl.clear(glow::COLOR_BUFFER_BIT);
+            gl.use_program(Some(self.blur_shader));
 
-            gl::Uniform1i(self.u_kernel_size, self.blur.kernel);
-            gl::Uniform2f(
-                self.u_direction,
+            gl.uniform_1_i32(Some(&self.u_kernel_size), self.blur.kernel);
+            gl.uniform_2_f32(
+                Some(&self.u_direction),
                 angle.cos() * self.blur.radius,
                 angle.sin() * self.blur.radius,
             );
 
-            gl::BindVertexArray(self.comp_vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.comp_vbo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, 0);
-            gl::BufferSubData(
-                gl::ARRAY_BUFFER,
-                0,
-                mem::size_of_val(SCREEN_VERTICES) as GLsizeiptr,
-                SCREEN_VERTICES.as_ptr() as *const _,
-            );
+            gl.bind_vertex_array(Some(self.comp_vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.comp_vbo));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, None);
+            gl.buffer_sub_data_u8_slice(glow::ARRAY_BUFFER, 0, slice_as_bytes(SCREEN_VERTICES));
 
-            gl::BindTexture(gl::TEXTURE_2D, ping_pong_fb.texture);
-            gl::DrawArrays(gl::TRIANGLES, 0, 6);
+            gl.bind_texture(glow::TEXTURE_2D, Some(ping_pong_fb.texture));
+            gl.draw_arrays(glow::TRIANGLES, 0, 6);
         }
 
         composite_fb
     }
 
     pub fn resize(&mut self, camera: &Camera, width: i32, height: i32) {
+        let gl = &self.gl;
+
         unsafe {
-            gl::Viewport(0, 0, width, height);
+            gl.viewport(0, 0, width, height);
 
             self.viewport = Vec2::new(width as f32, height as f32);
             self.matrix = camera.matrix(self.viewport);
 
-            gl::UseProgram(self.quad_shader);
-            gl::UniformMatrix4fv(self.u_mvp_quad, 1, gl::FALSE, self.matrix.as_ref().as_ptr());
+            gl.use_program(Some(self.quad_shader));
+            gl.uniform_matrix_4_f32_slice(Some(&self.u_mvp_quad), false, self.matrix.as_ref());
 
-            gl::UseProgram(self.dither_shader);
-            gl::UniformMatrix4fv(
-                self.u_mvp_dither,
-                1,
-                gl::FALSE,
-                self.matrix.as_ref().as_ptr(),
-            );
+            gl.use_program(Some(self.dither_shader));
+            gl.uniform_matrix_4_f32_slice(Some(&self.u_mvp_dither), false, self.matrix.as_ref());
         }
     }
 }
 
 impl Drop for BlurringScene {
     fn drop(&mut self) {
+        let gl = &self.gl;
+
         unsafe {
-            gl::DeleteProgram(self.quad_shader);
-            gl::DeleteProgram(self.comp_shader);
-            gl::DeleteProgram(self.blur_shader);
-            gl::DeleteProgram(self.dither_shader);
+            gl.delete_program(self.quad_shader);
+            gl.delete_program(self.comp_shader);
+            gl.delete_program(self.blur_shader);
+            gl.delete_program(self.dither_shader);
 
-            let buffers = &[self.quad_vbo, self.quad_ebo, self.comp_vbo];
-            gl::DeleteBuffers(buffers.len() as GLsizei, buffers.as_ptr());
+            gl.delete_buffer(self.quad_vbo);
+            gl.delete_buffer(self.quad_ebo);
+            gl.delete_buffer(self.comp_vbo);
 
-            let arrays = &[self.quad_vao, self.comp_vao];
-            gl::DeleteVertexArrays(arrays.len() as GLsizei, arrays.as_ptr());
+            gl.delete_vertex_array(self.quad_vao);
+            gl.delete_vertex_array(self.comp_vao);
 
-            gl::DeleteTextures(1, &self.gura_texture);
+            gl.delete_texture(self.gura_texture);
         }
     }
 }

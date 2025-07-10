@@ -1,30 +1,36 @@
 use std::{
     f32::consts::{PI, TAU},
     mem::{self, offset_of},
+    rc::Rc,
     time::Instant,
 };
 
-use gl::types::{GLfloat, GLint, GLsizei, GLsizeiptr, GLuint};
-use glam::{vec2, Mat4, Vec2};
+use glam::{Mat4, Vec2, vec2};
+use glow::HasContext;
 use rand::Rng;
 use winit::window::Window;
 
-use crate::{camera::Camera, common_gl::create_shader_program};
+use crate::{
+    camera::Camera,
+    common::{create_shader_program, slice_as_bytes},
+};
 
 use super::{SRC_FRAG_ROUND_RECT, SRC_VERT_ROUND_RECT};
 
 const N_QUADS: usize = 100_000;
 
 pub struct RoundQuadsScene {
+    gl: Rc<glow::Context>,
+
     matrix: Mat4,
     viewport: Vec2,
 
-    round_rect_shader: GLuint,
-    vao: GLuint,
-    vbo: GLuint,
-    ebo: GLuint,
+    round_rect_shader: glow::Program,
+    vao: glow::VertexArray,
+    vbo: glow::Buffer,
+    ebo: glow::Buffer,
 
-    u_mvp_quad: GLint,
+    u_mvp_quad: glow::UniformLocation,
 
     quads: Vec<Quad>,
     vertices: Vec<[Vertex; 4]>,
@@ -36,7 +42,7 @@ pub struct RoundQuadsScene {
 }
 
 impl RoundQuadsScene {
-    pub fn new(window: &Window) -> Self {
+    pub fn new(gl: Rc<glow::Context>, window: &Window) -> Self {
         let area_width = (N_QUADS as f32).sqrt() as u32;
 
         let mut quads = Vec::with_capacity(N_QUADS);
@@ -53,71 +59,68 @@ impl RoundQuadsScene {
 
         unsafe {
             // Normal blending
-            gl::Enable(gl::BLEND);
-            gl::BlendEquation(gl::FUNC_ADD);
-            gl::BlendFunc(gl::SRC_ALPHA, gl::ONE_MINUS_SRC_ALPHA);
+            gl.enable(glow::BLEND);
+            gl.blend_func_separate(glow::SRC_ALPHA, glow::ONE_MINUS_SRC_ALPHA, glow::SRC_ALPHA, glow::ONE);
+            gl.blend_equation_separate(glow::FUNC_ADD, glow::FUNC_ADD);
 
-            let round_rect_shader = create_shader_program(SRC_VERT_ROUND_RECT, SRC_FRAG_ROUND_RECT);
+            let round_rect_shader = create_shader_program(&gl, SRC_VERT_ROUND_RECT, SRC_FRAG_ROUND_RECT);
 
-            let u_mvp_quad = gl::GetUniformLocation(round_rect_shader, c"u_mvp".as_ptr());
+            let u_mvp_quad = gl.get_uniform_location(round_rect_shader, "u_mvp").unwrap();
 
-            let mut vao: u32 = 0;
-            gl::GenVertexArrays(1, &mut vao);
-            gl::BindVertexArray(vao);
+            let vao = gl.create_vertex_array().unwrap();
+            gl.bind_vertex_array(Some(vao));
 
-            let mut vbo: u32 = 0;
-            gl::GenBuffers(1, &mut vbo);
-            gl::BindBuffer(gl::ARRAY_BUFFER, vbo);
-            gl::BufferData(
-                gl::ARRAY_BUFFER,
-                mem::size_of_val(vertices.as_slice()) as GLsizeiptr,
-                vertices.as_slice().as_ptr() as *const _,
-                gl::DYNAMIC_DRAW,
+            let vbo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(vbo));
+            gl.buffer_data_u8_slice(
+                glow::ARRAY_BUFFER,
+                slice_as_bytes(vertices.as_slice()),
+                glow::DYNAMIC_DRAW,
             );
 
-            let mut ebo: u32 = 0;
-            gl::GenBuffers(1, &mut ebo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, ebo);
-            gl::BufferData(
-                gl::ELEMENT_ARRAY_BUFFER,
-                mem::size_of_val(indices.as_slice()) as GLsizeiptr,
-                indices.as_slice().as_ptr() as *const _,
-                gl::STATIC_DRAW,
+            let ebo = gl.create_buffer().unwrap();
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(ebo));
+            gl.buffer_data_u8_slice(
+                glow::ELEMENT_ARRAY_BUFFER,
+                slice_as_bytes(indices.as_slice()),
+                glow::STATIC_DRAW,
             );
 
-            let size_vertex = mem::size_of::<Vertex>() as GLsizei;
+            let size_vertex = mem::size_of::<Vertex>() as i32;
 
             #[rustfmt::skip]
             {
-                let a_position      = gl::GetAttribLocation(round_rect_shader, c"position"      .as_ptr()) as GLuint;
-                let a_size          = gl::GetAttribLocation(round_rect_shader, c"size"          .as_ptr()) as GLuint;
-                let a_fill_color    = gl::GetAttribLocation(round_rect_shader, c"fill_color"    .as_ptr()) as GLuint;
-                let a_stroke_color  = gl::GetAttribLocation(round_rect_shader, c"stroke_color"  .as_ptr()) as GLuint;
-                let a_border_radius = gl::GetAttribLocation(round_rect_shader, c"border_radius" .as_ptr()) as GLuint;
-                let a_border_width  = gl::GetAttribLocation(round_rect_shader, c"border_width"  .as_ptr()) as GLuint;
-                let a_intensity     = gl::GetAttribLocation(round_rect_shader, c"intensity"     .as_ptr()) as GLuint;
+                let a_position      = gl.get_attrib_location(round_rect_shader, "position"     ).unwrap();
+                let a_size          = gl.get_attrib_location(round_rect_shader, "size"         ).unwrap();
+                let a_fill_color    = gl.get_attrib_location(round_rect_shader, "fill_color"   ).unwrap();
+                let a_stroke_color  = gl.get_attrib_location(round_rect_shader, "stroke_color" ).unwrap();
+                let a_border_radius = gl.get_attrib_location(round_rect_shader, "border_radius").unwrap();
+                let a_border_width  = gl.get_attrib_location(round_rect_shader, "border_width" ).unwrap();
+                let a_intensity     = gl.get_attrib_location(round_rect_shader, "intensity"    ).unwrap();
 
-                gl::VertexAttribPointer(a_position,      2, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, position)      as _);
-                gl::VertexAttribPointer(a_size,          2, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, size)          as _);
-                gl::VertexAttribIPointer(a_fill_color,   1, gl::INT,              size_vertex, offset_of!(Vertex, fill_color)    as _);
-                gl::VertexAttribIPointer(a_stroke_color, 1, gl::INT,              size_vertex, offset_of!(Vertex, stroke_color)  as _);
-                gl::VertexAttribPointer(a_border_radius, 1, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, border_radius) as _);
-                gl::VertexAttribPointer(a_border_width,  1, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, border_width)  as _);
-                gl::VertexAttribPointer(a_intensity,     1, gl::FLOAT, gl::FALSE, size_vertex, offset_of!(Vertex, intensity)     as _);
+                gl.vertex_attrib_pointer_f32(a_position,      2, glow::FLOAT, false, size_vertex, offset_of!(Vertex, position)      as _);
+                gl.vertex_attrib_pointer_f32(a_size,          2, glow::FLOAT, false, size_vertex, offset_of!(Vertex, size)          as _);
+                gl.vertex_attrib_pointer_i32(a_fill_color,    1, glow::INT,          size_vertex, offset_of!(Vertex, fill_color)    as _);
+                gl.vertex_attrib_pointer_i32(a_stroke_color,  1, glow::INT,          size_vertex, offset_of!(Vertex, stroke_color)  as _);
+                gl.vertex_attrib_pointer_f32(a_border_radius, 1, glow::FLOAT, false, size_vertex, offset_of!(Vertex, border_radius) as _);
+                gl.vertex_attrib_pointer_f32(a_border_width,  1, glow::FLOAT, false, size_vertex, offset_of!(Vertex, border_width)  as _);
+                gl.vertex_attrib_pointer_f32(a_intensity,     1, glow::FLOAT, false, size_vertex, offset_of!(Vertex, intensity)     as _);
 
-                gl::EnableVertexAttribArray(a_position      as GLuint);
-                gl::EnableVertexAttribArray(a_size          as GLuint);
-                gl::EnableVertexAttribArray(a_fill_color    as GLuint);
-                gl::EnableVertexAttribArray(a_stroke_color  as GLuint);
-                gl::EnableVertexAttribArray(a_border_radius as GLuint);
-                gl::EnableVertexAttribArray(a_border_width  as GLuint);
-                gl::EnableVertexAttribArray(a_intensity     as GLuint);
+                gl.enable_vertex_attrib_array(a_position);
+                gl.enable_vertex_attrib_array(a_size);
+                gl.enable_vertex_attrib_array(a_fill_color);
+                gl.enable_vertex_attrib_array(a_stroke_color);
+                gl.enable_vertex_attrib_array(a_border_radius);
+                gl.enable_vertex_attrib_array(a_border_width);
+                gl.enable_vertex_attrib_array(a_intensity);
             };
 
             let win_size = window.inner_size();
             let viewport = Vec2::new(win_size.width as f32, win_size.height as f32);
 
             Self {
+                gl,
+
                 matrix: Mat4::default(),
                 viewport,
 
@@ -186,67 +189,69 @@ impl RoundQuadsScene {
     }
 
     fn update_vertices(&mut self, x_beg: u32, x_end: u32, y_beg: u32, y_end: u32) {
+        let gl = &self.gl;
+
         unsafe {
-            gl::BindVertexArray(self.vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
+            gl.bind_vertex_array(Some(self.vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(self.ebo));
 
             for y in y_beg..=y_end {
                 let i_beg = (y * self.area_width + x_beg) as usize;
                 let i_end = (y * self.area_width + x_end) as usize;
 
-                gl::BufferSubData(
-                    gl::ARRAY_BUFFER,
-                    mem::size_of_val(&self.vertices[..i_beg]) as GLsizeiptr,
-                    mem::size_of_val(&self.vertices[i_beg..=i_end]) as GLsizeiptr,
-                    self.vertices[i_beg..=i_end].as_ptr() as *const _,
+                gl.buffer_sub_data_u8_slice(
+                    glow::ARRAY_BUFFER,
+                    mem::size_of_val(&self.vertices[..i_beg]) as i32,
+                    slice_as_bytes(&self.vertices[i_beg..=i_end]),
                 );
             }
         }
     }
 
-    fn draw_with_clear_color(&self, r: GLfloat, g: GLfloat, b: GLfloat, a: GLfloat) {
+    fn draw_with_clear_color(&self, r: f32, g: f32, b: f32, a: f32) {
+        let gl = &self.gl;
+
         unsafe {
-            gl::BindFramebuffer(gl::FRAMEBUFFER, 0);
+            gl.bind_framebuffer(glow::FRAMEBUFFER, None);
 
-            gl::BindVertexArray(self.vao);
-            gl::BindBuffer(gl::ARRAY_BUFFER, self.vbo);
-            gl::BindBuffer(gl::ELEMENT_ARRAY_BUFFER, self.ebo);
+            gl.bind_vertex_array(Some(self.vao));
+            gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.vbo));
+            gl.bind_buffer(glow::ELEMENT_ARRAY_BUFFER, Some(self.ebo));
 
-            gl::ClearColor(r, g, b, a);
-            gl::Clear(gl::COLOR_BUFFER_BIT);
+            gl.clear_color(r, g, b, a);
+            gl.clear(glow::COLOR_BUFFER_BIT);
 
-            gl::UseProgram(self.round_rect_shader);
-            gl::DrawElements(
-                gl::TRIANGLES,
-                mem::size_of_val(self.indices.as_slice()) as GLsizei,
-                gl::UNSIGNED_INT,
-                std::ptr::null(),
-            );
+            gl.use_program(Some(self.round_rect_shader));
+            gl.draw_elements(glow::TRIANGLES, self.indices.len() as i32 * 6, glow::UNSIGNED_INT, 0);
         }
     }
 
     pub fn resize(&mut self, camera: &Camera, width: i32, height: i32) {
+        let gl = &self.gl;
+
         unsafe {
-            gl::Viewport(0, 0, width, height);
+            gl.viewport(0, 0, width, height);
 
             self.viewport = Vec2::new(width as f32, height as f32);
             self.matrix = camera.matrix(self.viewport);
 
-            gl::UseProgram(self.round_rect_shader);
-            gl::UniformMatrix4fv(self.u_mvp_quad, 1, gl::FALSE, self.matrix.as_ref().as_ptr());
+            gl.use_program(Some(self.round_rect_shader));
+            gl.uniform_matrix_4_f32_slice(Some(&self.u_mvp_quad), false, self.matrix.as_ref());
         }
     }
 }
 
 impl Drop for RoundQuadsScene {
     fn drop(&mut self) {
-        unsafe {
-            gl::DeleteProgram(self.round_rect_shader);
-            gl::DeleteVertexArrays(1, &self.vao);
+        let gl = &self.gl;
 
-            let buffers = &[self.vbo, self.ebo];
-            gl::DeleteBuffers(buffers.len() as GLsizei, buffers.as_ptr());
+        unsafe {
+            gl.delete_program(self.round_rect_shader);
+            gl.delete_vertex_array(self.vao);
+
+            gl.delete_buffer(self.vbo);
+            gl.delete_buffer(self.ebo);
         }
     }
 }

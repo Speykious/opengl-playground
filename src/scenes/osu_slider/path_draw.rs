@@ -2,7 +2,7 @@
 
 use std::f32::consts::{PI, TAU};
 
-use glam::{vec2, Vec2};
+use glam::{Vec2, vec2};
 
 use crate::scenes::osu_slider::SliderVertex;
 
@@ -80,9 +80,7 @@ pub fn generate_slider_vertices(path: &[Vec2], radius: f32) -> Vec<SliderVertex>
 
         add_segment_quads(&mut vertices, seg, curr_seg_l, curr_seg_r);
 
-        if let (Some(prev_seg), Some(prev_seg_l), Some(prev_seg_r)) =
-            (prev_seg, prev_seg_l, prev_seg_r)
-        {
+        if let (Some(prev_seg), Some(prev_seg_l), Some(prev_seg_r)) = (prev_seg, prev_seg_l, prev_seg_r) {
             // Connection/filler caps between segment quads
             let theta_diff = seg.theta() - prev_seg.theta();
             add_segment_caps(
@@ -106,31 +104,15 @@ pub fn generate_slider_vertices(path: &[Vec2], radius: f32) -> Vec<SliderVertex>
             // Path start cap (semi-circle);
             let flipped_l = Line::new(curr_seg_r.b, curr_seg_r.a);
             let flipped_r = Line::new(curr_seg_l.b, curr_seg_l.a);
-            add_segment_caps(
-                &mut vertices,
-                radius,
-                PI,
-                curr_seg_l,
-                curr_seg_r,
-                flipped_l,
-                flipped_r,
-            );
+            add_segment_caps(&mut vertices, radius, PI, curr_seg_l, curr_seg_r, flipped_l, flipped_r);
         }
 
-		if i == segments.len() - 1 {
-			// Path end cap (semi-circle)
-			let flipped_l = Line::new(curr_seg_r.b, curr_seg_r.a);
+        if i == segments.len() - 1 {
+            // Path end cap (semi-circle)
+            let flipped_l = Line::new(curr_seg_r.b, curr_seg_r.a);
             let flipped_r = Line::new(curr_seg_l.b, curr_seg_l.a);
-            add_segment_caps(
-                &mut vertices,
-                radius,
-                PI,
-                flipped_l,
-                flipped_r,
-                curr_seg_l,
-                curr_seg_r,
-            );
-		}
+            add_segment_caps(&mut vertices, radius, PI, flipped_l, flipped_r, curr_seg_l, curr_seg_r);
+        }
 
         prev_seg = Some(seg);
         prev_seg_l = Some(curr_seg_l);
@@ -197,11 +179,7 @@ fn add_segment_caps(
     // Use segment end points instead of calculating start/end via theta to guarantee
     // that the vertices have the exact same position as the quads, which prevents
     // possible pixel gaps during rasterization.
-    let mut current = if theta_diff_is_pos {
-        prev_seg_r.b
-    } else {
-        prev_seg_l.b
-    };
+    let mut current = if theta_diff_is_pos { prev_seg_r.b } else { prev_seg_l.b };
 
     let end = if theta_diff_is_pos { seg_r.a } else { seg_l.a };
 

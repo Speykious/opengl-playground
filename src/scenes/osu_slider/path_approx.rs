@@ -4,7 +4,7 @@
 
 use std::f64::consts::TAU;
 
-use glam::{vec2, Vec2};
+use glam::{Vec2, vec2};
 
 use crate::scenes::osu_slider::slider_path::SliderControlPoint;
 
@@ -15,10 +15,7 @@ pub const CATMULL_SEGMENT_LENGTH: usize = CATMULL_DETAIL * 2;
 /// Creates a piecewise-linear approximation of a linear curve.
 /// Basically, returns the input.
 pub fn linear_to_piecewise_linear(control_points: &[SliderControlPoint]) -> Vec<Vec2> {
-    control_points
-        .iter()
-        .map(SliderControlPoint::vec2)
-        .collect::<Vec<_>>()
+    control_points.iter().map(SliderControlPoint::vec2).collect::<Vec<_>>()
 }
 
 /// Creates a piecewise-linear approximation of a Catmull-Rom spline.
@@ -44,13 +41,7 @@ pub fn catmull_to_piecewise_linear(control_points: &[SliderControlPoint]) -> Vec
         };
 
         for c in 0..CATMULL_DETAIL {
-            result.push(catmull_find_point(
-                v1,
-                v2,
-                v3,
-                v4,
-                c as f32 / CATMULL_DETAIL as f32,
-            ));
+            result.push(catmull_find_point(v1, v2, v3, v4, c as f32 / CATMULL_DETAIL as f32));
             result.push(catmull_find_point(
                 v1,
                 v2,
@@ -80,9 +71,7 @@ pub fn bezier_to_piecewise_linear(control_points: &[SliderControlPoint]) -> Vec<
     let mut output = Vec::new();
     let point_count = control_points.len() - 1;
 
-    let mut to_flatten = vec![(control_points.iter())
-        .map(|cp| cp.vec2())
-        .collect::<Vec<_>>()];
+    let mut to_flatten = vec![(control_points.iter()).map(|cp| cp.vec2()).collect::<Vec<_>>()];
     let mut free_buffers = Vec::new();
 
     // "to_flatten" contains all the curves which are not yet approximated well enough.
@@ -101,13 +90,7 @@ pub fn bezier_to_piecewise_linear(control_points: &[SliderControlPoint]) -> Vec<
             // an extension to De Casteljau's algorithm to obtain a piecewise-linear approximation
             // of the bezier curve represented by our control points, consisting of the same amount
             // of points as there are control points.
-            bezier_approximate(
-                &parent,
-                &mut output,
-                &mut subdivision_buffer1,
-                left_child,
-                degree + 1,
-            );
+            bezier_approximate(&parent, &mut output, &mut subdivision_buffer1, left_child, degree + 1);
 
             free_buffers.push(parent);
             continue;
@@ -116,7 +99,13 @@ pub fn bezier_to_piecewise_linear(control_points: &[SliderControlPoint]) -> Vec<
         // If we do not yet have a sufficiently "flat" (in other words, detailed) approximation we keep
         // subdividing the curve we are currently operating on.
         let mut right_child = (free_buffers.pop()).unwrap_or_else(|| vec![Vec2::ZERO; degree + 1]);
-        bezier_subdivide(&parent, left_child, &mut right_child, Some(&mut subdivision_buffer1), degree + 1);
+        bezier_subdivide(
+            &parent,
+            left_child,
+            &mut right_child,
+            Some(&mut subdivision_buffer1),
+            degree + 1,
+        );
 
         // We re-use the buffer of the parent for one of the children, so that we save one allocationbezierSubdivide per iteration.
         for i in 0..(degree + 1) {
@@ -135,8 +124,7 @@ fn bezier_is_flat_enough(control_points: &[Vec2]) -> bool {
     const BEZIER_TOLERANCE: f32 = 0.25;
 
     for i in 1..(control_points.len() - 1) {
-        if (control_points[i - 1] - 2.0 * control_points[i] + control_points[i + 1])
-            .length_squared()
+        if (control_points[i - 1] - 2.0 * control_points[i] + control_points[i + 1]).length_squared()
             > BEZIER_TOLERANCE * BEZIER_TOLERANCE * 4.0
         {
             return false;
@@ -232,9 +220,7 @@ pub fn circular_arc_to_piecewise_linear(carps: CircularArcProps) -> Vec<Vec2> {
     let amount_points = match 2.0 * carps.radius as f64 <= CIRCULAR_ARC_TOLERANCE {
         true => 2,
         false => 2.max(
-            (carps.theta_range
-                / (2.0 * (1.0 - CIRCULAR_ARC_TOLERANCE / carps.radius as f64).acos()))
-            .ceil() as usize,
+            (carps.theta_range / (2.0 * (1.0 - CIRCULAR_ARC_TOLERANCE / carps.radius as f64).acos())).ceil() as usize,
         ),
     };
 

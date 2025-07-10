@@ -36,13 +36,11 @@ impl Camera {
         let origin = self.center_offset(viewport);
         let pos = self.position.extend(-(u16::MAX as f32 / 2.0));
 
-        (
-			Mat4::from_translation(-pos)
-			* Mat4::from_translation(-origin.extend(0.0))
-			* Mat4::from_rotation_z(-self.rotation)
-			* Mat4::from_scale(1.0 / self.scale.extend(1.0))
-            * Vec4::new(pointer.x, pointer.y, 0.0, 1.0)
-		)
+        (Mat4::from_translation(-pos)
+            * Mat4::from_translation(-origin.extend(0.0))
+            * Mat4::from_rotation_z(-self.rotation)
+            * Mat4::from_scale(1.0 / self.scale.extend(1.0))
+            * Vec4::new(pointer.x, pointer.y, 0.0, 1.0))
         .xy()
     }
 
