@@ -415,13 +415,7 @@ impl OsuSliderScene {
         unsafe {
             gl.viewport(0, 0, width, height);
 
-            self.slider_fb = create_framebuffer(
-                gl,
-                "Slider Framebuffer",
-                viewport.as_uvec2(),
-                TextureWrapping::ClampToBorder,
-                true,
-            );
+            self.slider_fb.resize(gl, viewport.as_uvec2());
 
             self.viewport = viewport.as_vec2();
             self.matrix = camera.matrix(self.viewport);

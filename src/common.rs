@@ -95,7 +95,23 @@ pub struct Framebuffer {
     pub fbo: glow::Framebuffer,
     pub texture: glow::Texture,
     pub depth: Option<glow::Texture>,
+    pub wrapping: TextureWrapping,
     pub size: UVec2,
+}
+
+impl Framebuffer {
+    pub fn resize(&mut self, gl: &glow::Context, size: UVec2) {
+        unsafe {
+            gl.bind_framebuffer(glow::FRAMEBUFFER, Some(self.fbo));
+            upload_texture(gl, self.texture, size.x, size.y, None, self.wrapping);
+
+            if let Some(depth) = self.depth {
+                upload_depth_texture(gl, depth, size.x, size.y, None);
+            }
+        }
+
+        self.size = size;
+    }
 }
 
 pub unsafe fn create_framebuffer(
@@ -145,6 +161,7 @@ pub unsafe fn create_framebuffer(
             fbo,
             texture,
             depth,
+            wrapping,
             size,
         }
     }

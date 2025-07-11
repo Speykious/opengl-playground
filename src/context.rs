@@ -39,7 +39,7 @@ impl GraphicsContext {
         // with transparency ourselves inside the `reduce`.
         let template_builder = ConfigTemplateBuilder::new()
 			.with_alpha_size(8)
-			// .with_transparency(cfg!(target_os = "macos"))
+			.with_transparency(cfg!(target_os = "macos"))
 			// .with_multisampling(4)
 			;
 
@@ -212,7 +212,7 @@ pub fn gl_config_picker(configs: Box<dyn Iterator<Item = Config> + '_>) -> Confi
         //     config
         // })
         .reduce(|accum, config| {
-            if !config.supports_transparency().unwrap_or(false) && accum.supports_transparency().unwrap_or(false) {
+            if config.supports_transparency().unwrap_or(false) && !accum.supports_transparency().unwrap_or(false) {
                 config
             } else {
                 accum
