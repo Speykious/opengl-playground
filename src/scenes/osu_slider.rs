@@ -79,6 +79,7 @@ pub struct OsuSliderScene {
 
     slider_shader: glow::Program,
     u_slider_mvp: glow::UniformLocation,
+    u_slider_point_size: glow::UniformLocation,
     u_slider_border_color: glow::UniformLocation,
     u_slider_border_width: glow::UniformLocation,
     u_slider_radius: glow::UniformLocation,
@@ -141,10 +142,13 @@ impl OsuSliderScene {
         unsafe {
             Self::blend(&gl, true);
 
+            gl.enable(glow::PROGRAM_POINT_SIZE);
+
             let screen_shader = create_shader_program(&gl, SRC_VERT_SCREEN, SRC_FRAG_TEXTURE);
 
             let slider_shader = create_shader_program(&gl, SRC_VERT_SLIDER, SRC_FRAG_SLIDER);
             let u_slider_mvp = gl.get_uniform_location(slider_shader, "u_mvp").unwrap();
+            let u_slider_point_size = gl.get_uniform_location(slider_shader, "u_point_size").unwrap();
             let u_slider_border_color = gl.get_uniform_location(slider_shader, "u_border_color").unwrap();
             let u_slider_border_width = gl.get_uniform_location(slider_shader, "u_border_width").unwrap();
             let u_slider_radius = gl.get_uniform_location(slider_shader, "u_radius").unwrap();
@@ -217,6 +221,7 @@ impl OsuSliderScene {
 
                 slider_shader,
                 u_slider_mvp,
+                u_slider_point_size,
                 u_slider_border_color,
                 u_slider_border_width,
                 u_slider_radius,
@@ -369,7 +374,7 @@ impl OsuSliderScene {
 
             gl.bind_vertex_array(Some(self.path_vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.path_vbo));
-            // gl.point_size(5.0);
+            gl.uniform_1_f32(Some(&self.u_slider_point_size), 5.0);
 
             gl.uniform_1_i32(Some(&self.u_slider_point_is_solid), 1);
             gl.draw_arrays(glow::LINE_STRIP, 0, slider.path.len() as i32);
@@ -378,7 +383,8 @@ impl OsuSliderScene {
 
             gl.bind_vertex_array(Some(self.ctrl_vao));
             gl.bind_buffer(glow::ARRAY_BUFFER, Some(self.ctrl_vbo));
-            // gl.point_size(10.0);
+            gl.uniform_1_f32(Some(&self.u_slider_point_size), 10.0);
+
             gl.uniform_1_i32(Some(&self.u_slider_point_is_solid), 1);
             gl.draw_arrays(glow::LINE_STRIP, 0, slider.ctrl.len() as i32);
             gl.uniform_1_i32(Some(&self.u_slider_point_is_solid), 0);
