@@ -122,8 +122,8 @@ void main() {
     vec4 radius = v_border_radius;
     vec4 borders = v_border_width;
 
-    radius.xy = (pos.x > 0.0) ? radius.xy : radius.wz;
-    radius.x = (pos.y > 0.0) ? radius.x : radius.y;
+    radius.xy = (v_uv.x > 0.5) ? radius.xy : radius.wz;
+    radius.x = (v_uv.y > 0.5) ? radius.x : radius.y;
     float collapsedRadius = radius.x;
 
     float dOuter = sdRoundBox(pos, hSize, collapsedRadius);
