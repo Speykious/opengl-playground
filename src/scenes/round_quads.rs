@@ -1,11 +1,8 @@
 use std::{
-    f32::consts::{PI, TAU},
-    mem::{self, offset_of},
-    rc::Rc,
-    time::Instant,
+    f32::consts::TAU, mem::{self, offset_of}, rc::Rc, time::Instant
 };
 
-use glam::{Mat4, Vec2, vec2};
+use glam::{Mat4, Vec2, Vec4, vec2, vec4};
 use glow::HasContext;
 use rand::Rng;
 use winit::window::Window;
@@ -92,26 +89,26 @@ impl RoundQuadsScene {
             {
                 let a_position      = gl.get_attrib_location(round_rect_shader, "position"     ).unwrap();
                 let a_size          = gl.get_attrib_location(round_rect_shader, "size"         ).unwrap();
-                let a_fill_color    = gl.get_attrib_location(round_rect_shader, "fill_color"   ).unwrap();
-                let a_stroke_color  = gl.get_attrib_location(round_rect_shader, "stroke_color" ).unwrap();
                 let a_border_radius = gl.get_attrib_location(round_rect_shader, "border_radius").unwrap();
                 let a_border_width  = gl.get_attrib_location(round_rect_shader, "border_width" ).unwrap();
+                let a_fill_color    = gl.get_attrib_location(round_rect_shader, "fill_color"   ).unwrap();
+                let a_stroke_color  = gl.get_attrib_location(round_rect_shader, "stroke_color" ).unwrap();
                 let a_intensity     = gl.get_attrib_location(round_rect_shader, "intensity"    ).unwrap();
 
                 gl.vertex_attrib_pointer_f32(a_position,      2, glow::FLOAT, false, size_vertex, offset_of!(Vertex, position)      as _);
                 gl.vertex_attrib_pointer_f32(a_size,          2, glow::FLOAT, false, size_vertex, offset_of!(Vertex, size)          as _);
+                gl.vertex_attrib_pointer_f32(a_border_radius, 4, glow::FLOAT, false, size_vertex, offset_of!(Vertex, border_radius) as _);
+                gl.vertex_attrib_pointer_f32(a_border_width,  4, glow::FLOAT, false, size_vertex, offset_of!(Vertex, border_width)  as _);
                 gl.vertex_attrib_pointer_i32(a_fill_color,    1, glow::INT,          size_vertex, offset_of!(Vertex, fill_color)    as _);
                 gl.vertex_attrib_pointer_i32(a_stroke_color,  1, glow::INT,          size_vertex, offset_of!(Vertex, stroke_color)  as _);
-                gl.vertex_attrib_pointer_f32(a_border_radius, 1, glow::FLOAT, false, size_vertex, offset_of!(Vertex, border_radius) as _);
-                gl.vertex_attrib_pointer_f32(a_border_width,  1, glow::FLOAT, false, size_vertex, offset_of!(Vertex, border_width)  as _);
                 gl.vertex_attrib_pointer_f32(a_intensity,     1, glow::FLOAT, false, size_vertex, offset_of!(Vertex, intensity)     as _);
 
                 gl.enable_vertex_attrib_array(a_position);
                 gl.enable_vertex_attrib_array(a_size);
-                gl.enable_vertex_attrib_array(a_fill_color);
-                gl.enable_vertex_attrib_array(a_stroke_color);
                 gl.enable_vertex_attrib_array(a_border_radius);
                 gl.enable_vertex_attrib_array(a_border_width);
+                gl.enable_vertex_attrib_array(a_fill_color);
+                gl.enable_vertex_attrib_array(a_stroke_color);
                 gl.enable_vertex_attrib_array(a_intensity);
             };
 
@@ -143,7 +140,7 @@ impl RoundQuadsScene {
     }
 
     pub fn draw(&mut self, camera: &Camera, mouse_pos: Vec2) {
-        let dt = self.last_instant.elapsed().as_secs_f32();
+        // let dt = self.last_instant.elapsed().as_secs_f32();
         self.last_instant = Instant::now();
 
         // rotate surroundings of mouse
@@ -163,7 +160,7 @@ impl RoundQuadsScene {
                     let distance = Vec2::distance(quad.position, mouse_pos);
                     let intensity = (surround_radius - distance).max(0.0) / surround_radius;
 
-                    quad.rotation += (dt * PI) * 2.0 * intensity;
+                    // quad.rotation += (dt * PI) * 2.0 * intensity;
                     self.vertices[i] = quad.vertices(0.5 * intensity + 0.5);
                 }
             }
@@ -262,8 +259,8 @@ struct Quad {
     pub position: Vec2,
     pub size: Vec2,
     pub rotation: f32,
-    pub border_radius: f32,
-    pub border_width: f32,
+    pub border_radius: Vec4,
+    pub border_width: Vec4,
     pub fill_color: u32,
     pub stroke_color: u32,
 }
@@ -289,12 +286,24 @@ impl Quad {
     }
 
     fn random(rng: &mut impl Rng, i: u32, area_width: u32) -> Self {
+        // NOTE: It looks ugly and buggy if border radius and border width get bigger than half the size.
+        // But I can just clamp it on the CPU side to avoid problems.
         Self {
             position: Self::pos_from_idx(i, area_width),
             size: vec2(rng.random_range(10.0..=20.0), rng.random_range(10.0..=20.0)),
             rotation: rng.random_range(0.0..TAU),
-            border_radius: rng.random_range(1.0..=5.0),
-            border_width: rng.random_range(1.0..=5.0),
+            border_radius: vec4(
+                rng.random_range(0.0..=5.0),
+                rng.random_range(0.0..=5.0),
+                rng.random_range(0.0..=5.0),
+                rng.random_range(0.0..=5.0),
+            ),
+            border_width: vec4(
+                rng.random_range(0.0..=5.0),
+                rng.random_range(0.0..=5.0),
+                rng.random_range(0.0..=5.0),
+                rng.random_range(0.0..=5.0),
+            ),
             fill_color: u32::from_be_bytes([
                 rng.random_range(100..=128),
                 rng.random_range(100..=128),
@@ -302,9 +311,9 @@ impl Quad {
                 rng.random_range(200..=255),
             ]),
             stroke_color: u32::from_be_bytes([
-                rng.random_range(24..=128),
-                rng.random_range(24..=128),
-                rng.random_range(24..=128),
+                rng.random_range(200..=255),
+                rng.random_range(200..=255),
+                rng.random_range(200..=255),
                 255,
             ]),
         }
@@ -334,10 +343,10 @@ impl Quad {
         pos_dims.map(|position| Vertex {
             position,
             size,
-            fill_color: i32::from_ne_bytes(fill_color.to_le_bytes()),
-            stroke_color: i32::from_ne_bytes(stroke_color.to_le_bytes()),
             border_radius,
             border_width,
+            fill_color: i32::from_ne_bytes(fill_color.to_le_bytes()),
+            stroke_color: i32::from_ne_bytes(stroke_color.to_le_bytes()),
             intensity,
         })
     }
@@ -353,9 +362,9 @@ impl Quad {
 struct Vertex {
     position: Vec2,
     size: Vec2,
+    border_radius: Vec4,
+    border_width: Vec4,
     fill_color: i32,
     stroke_color: i32,
-    border_radius: f32,
-    border_width: f32,
     intensity: f32,
 }
